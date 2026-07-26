@@ -127,3 +127,12 @@ Planned next phases:
 - **Case management workflow** for analyst triage and SAR filing
 
 See [Limitations & Assumptions](docs/TechnicalDocumentation.md#limitations--assumptions) for full detail.
+
+## License
+
+This project is licensed under the **MIT License**. 
+
+* **Code (.py, .sql)**: You are free to modify, distribute, and use the scripts for commercial or private purposes.
+* **Power BI (.pbix)**: You may download, view, and reuse the data model and report layouts. 
+
+Please provide attribution by linking back to this repository if you use this work.
