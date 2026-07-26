@@ -1,4 +1,4 @@
-# 🛡️ Walley Risk Platform: Enterprise RegTech & Fraud Detection Engine
+# 🛡️ Walley Risk End-to-end Rule-based RegTech & Fraud Detection Pipeline
 
 An end-to-end Financial Risk & AML analytics pipeline built with **PostgreSQL, Python, and SQL**, visualized through an interactive **Power BI Executive Cockpit**. The platform ingests, cleans, engineers risk features, and scans synthetic transaction data against Vietnamese State Bank (SBV) compliance rules — **Decision 2345** (biometric verification thresholds) and **Circular 17/2024/TT-NHNN** (mule account monitoring) — to detect **Account Takeover (ATO)**, **Biometric Evasion**, and **Mule Account Networks**.
 
