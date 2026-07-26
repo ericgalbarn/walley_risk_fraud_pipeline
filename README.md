@@ -6,15 +6,19 @@ An end-to-end Financial Risk & AML analytics pipeline built with **PostgreSQL, P
 
 ---
 
+
+
 ## 📸 Dashboard Preview
 
-![Power BI Executive Cockpit — Fraud Detection Dashboard](screenshots/01_dashboard_preview.png)
+Power BI Executive Cockpit — Fraud Detection Dashboard
 
 *4-zone executive cockpit: KPI summary, RegTech rule breakdown, temporal fraud trends, and incident drill-down table.*
 
 🔗 **[Explore the Interactive Power BI Dashboard →](https://app.powerbi.com/groups/me/reports/4363c137-59b2-4ef5-9011-106b53b4bfa6/b668eb87d8dc89ab4cc1?experience=power-bi&bookmarkGuid=3d38567bb8557ac59445)**
 
 ---
+
+
 
 ## 🎯 Business Problem
 
@@ -27,39 +31,52 @@ With the rapid growth of digital banking and e-wallets in Vietnam, financial ins
 
 ---
 
+
+
 ## 🔑 Key Findings
 
-From a cleaned dataset of **18,164 transactions**, the RegTech rules engine flagged **~2,100 suspicious transactions** (**~11.5%** flag rate).
+From a cleaned dataset of **18,164 transactions**, the RegTech rules engine flagged **~2,000 suspicious transactions** (**~11.0%** flag rate).
 
-| Risk Rule | Triggered Count | What It Means |
-|---|---|---|
-| `biometric_evasion_rule` | 1,422 | **Primary risk vector.** Transfers of 9M–9.99M VND to newly created beneficiaries, structured just under the 10M VND biometric verification threshold. |
-| `velocity_rule` | 629 | Rapid-fire transactions (>3 within 5 minutes), consistent with automated cash-out following account compromise. Concentrated between 1–4 AM. |
-| `circular_17_mule_network_rule` | 40 | Accounts receiving funds from ≥4 distinct senders within 1 hour — flagged 8 distinct organized mule rings, all with account age <15 days. |
-| `biometric_structuring_rule` | 28 | Cross-border FATF-flagged transactions combined with biometric evasion, indicating layered laundering attempts. |
+
+| Risk Rule                       | Triggered Count | What It Means                                                                                                                                          |
+| ------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `biometric_evasion_rule`        | 1,804           | **Primary risk vector.** Transfers of 9M–9.99M VND to newly created beneficiaries, structured just under the 10M VND biometric verification threshold. |
+| `velocity_rule`                 | 1,258           | Rapid-fire transactions (>3 within 5 minutes), consistent with automated cash-out following account compromise. Concentrated between 1–4 AM.           |
+| `circular_17_mule_network_rule` | 80              | Accounts receiving funds from ≥4 distinct senders within 1 hour — flagged 8 distinct organized mule rings, all with account age <15 days.              |
+| `biometric_structuring_rule`    | 56              | Cross-border FATF-flagged transactions combined with biometric evasion, indicating layered laundering attempts.                                        |
+
 
 *Note: individual rule counts sum to more than total flagged transactions because some transactions trigger multiple rules concurrently.*
 
 > 🐍 The full detection pipeline runs in PostgreSQL for production scale. A parallel **Pandas-based ETL notebook** (`python/pandas_etl_demo.ipynb`) replicates the core cleaning and feature-engineering logic step-for-step, with SQL-to-Pandas equivalents documented inline — see [Technical Documentation](docs/TechnicalDocumentation.md#pandas-etl-layer) for details.
+
 ---
+
+
 
 ## 💡 Recommendations
 
-| Priority | Finding | Recommended Action |
-|---|---|---|
-| Immediate | 1,422 transactions evaded biometric checks by staying under 10M VND | Require step-up 2FA/OTP verification for first-time transfers to new beneficiaries, regardless of amount |
-| Operational | 40 transactions tied to 8 mule rings | Auto-trigger a 24-hour debit block on any account flagged by `circular_17_mule_network_rule`, routed to AML review |
-| Product/Security | Velocity bursts peak 1–4 AM | Cap transfers at 3 per 5-minute window during off-hours; require re-authentication beyond that |
+
+| Priority         | Finding                                                             | Recommended Action                                                                                                 |
+| ---------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Immediate        | 1,804 transactions evaded biometric checks by staying under 10M VND | Require step-up 2FA/OTP verification for first-time transfers to new beneficiaries, regardless of amount           |
+| Operational      | 80 transactions tied to 8 mule rings                                | Auto-trigger a 24-hour debit block on any account flagged by `circular_17_mule_network_rule`, routed to AML review |
+| Product/Security | Velocity bursts peak 1–4 AM                                         | Cap transfers at 3 per 5-minute window during off-hours; require re-authentication beyond that                     |
+
 
 Full reasoning and supporting evidence for each recommendation: see [Technical Documentation](docs/TechnicalDocumentation.md#recommendations).
 
 ---
+
+
 
 ## 🧰 Tech Stack
 
 `PostgreSQL` · `Python (Faker, pandas, psycopg2)` · `SQL Window Functions` · `Power BI` · `DAMA Data Quality Framework`
 
 ---
+
+
 
 ## 🚀 Quick Start
 
@@ -87,6 +104,8 @@ psql -U postgres -d walley_risk_db -f sql/05_create_views.sql
 📖 **Full step-by-step guide with expected outputs:** [docs/TechnicalDocumentation.md](docs/TechnicalDocumentation.md#execution-guide)
 
 ---
+
+
 
 ## 📁 Repository Structure
 
@@ -119,11 +138,14 @@ walley-risk-platform/
 
 ---
 
+
+
 ## 🔭 Scope & Roadmap
 
 This project is intentionally scoped as a **rules-based Data Analytics pipeline** — it demonstrates SQL engineering, feature construction, data quality enforcement, and BI storytelling. It is **not** presented as a production fraud-prevention system.
 
 Planned next phases:
+
 - **ML-based anomaly scoring** to replace static thresholds, which are inherently evadable once known
 - **Graph-based network analysis** for deeper mule-ring detection beyond simple sender-count thresholds
 - **Case management workflow** for analyst triage and SAR filing
@@ -134,7 +156,7 @@ See [Limitations & Assumptions](docs/TechnicalDocumentation.md#limitations--assu
 
 This project is licensed under the **MIT License**. 
 
-* **Code (.py, .sql)**: You are free to modify, distribute, and use the scripts for commercial or private purposes.
-* **Power BI (.pbix)**: You may download, view, and reuse the data model and report layouts. 
+- **Code (.py, .sql)**: You are free to modify, distribute, and use the scripts for commercial or private purposes.
+- **Power BI (.pbix)**: You may download, view, and reuse the data model and report layouts.
 
 Please provide attribution by linking back to this repository if you use this work.
