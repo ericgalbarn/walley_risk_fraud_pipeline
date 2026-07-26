@@ -1,4 +1,6 @@
-# 🛡️ Walley Risk End-to-end Rule-based RegTech & Fraud Detection Pipeline
+# 🛡️ Walley Risk Fraud Platform: End-to-End Rule-Based RegTech & Fraud Detection Pipeline
+
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 An end-to-end Financial Risk & AML analytics pipeline built with **PostgreSQL, Python, and SQL**, visualized through an interactive **Power BI Executive Cockpit**. The platform ingests, cleans, engineers risk features, and scans synthetic transaction data against Vietnamese State Bank (SBV) compliance rules — **Decision 2345** (biometric verification thresholds) and **Circular 17/2024/TT-NHNN** (mule account monitoring) — to detect **Account Takeover (ATO)**, **Biometric Evasion**, and **Mule Account Networks**.
 
@@ -6,19 +8,15 @@ An end-to-end Financial Risk & AML analytics pipeline built with **PostgreSQL, P
 
 ---
 
-
-
 ## 📸 Dashboard Preview
 
-Power BI Executive Cockpit — Fraud Detection Dashboard
+![Power BI Executive Cockpit — Fraud Detection Dashboard](screenshots/01_dashboard_preview.png)
 
 *4-zone executive cockpit: KPI summary, RegTech rule breakdown, temporal fraud trends, and incident drill-down table.*
 
-🔗 **![Explore the Interactive Power BI Dashboard →](https://app.powerbi.com/groups/me/reports/4363c137-59b2-4ef5-9011-106b53b4bfa6/b668eb87d8dc89ab4cc1?experience=power-bi&bookmarkGuid=3d38567bb8557ac59445)**
+🔗 **[Explore the Interactive Power BI Dashboard →](https://app.powerbi.com/groups/me/reports/4363c137-59b2-4ef5-9011-106b53b4bfa6/b668eb87d8dc89ab4cc1?experience=power-bi&bookmarkGuid=3d38567bb8557ac59445)**
 
 ---
-
-
 
 ## 🎯 Business Problem
 
@@ -31,20 +29,16 @@ With the rapid growth of digital banking and e-wallets in Vietnam, financial ins
 
 ---
 
-
-
 ## 🔑 Key Findings
 
 From a cleaned dataset of **18,164 transactions**, the RegTech rules engine flagged **~2,000 suspicious transactions** (**~11.0%** flag rate).
 
-
-| Risk Rule                       | Triggered Count | What It Means                                                                                                                                          |
-| ------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `biometric_evasion_rule`        | 1,804           | **Primary risk vector.** Transfers of 9M–9.99M VND to newly created beneficiaries, structured just under the 10M VND biometric verification threshold. |
-| `velocity_rule`                 | 1,258           | Rapid-fire transactions (>3 within 5 minutes), consistent with automated cash-out following account compromise. Concentrated between 1–4 AM.           |
-| `circular_17_mule_network_rule` | 80              | Accounts receiving funds from ≥4 distinct senders within 1 hour — flagged 8 distinct organized mule rings, all with account age <15 days.              |
-| `biometric_structuring_rule`    | 56              | Cross-border FATF-flagged transactions combined with biometric evasion, indicating layered laundering attempts.                                        |
-
+| Risk Rule | Triggered Count | What It Means |
+|---|---|---|
+| `biometric_evasion_rule` | 1,804 | **Primary risk vector.** Transfers of 9M–9.99M VND to newly created beneficiaries, structured just under the 10M VND biometric verification threshold. |
+| `velocity_rule` | 1,258 | Rapid-fire transactions (>3 within 5 minutes), consistent with automated cash-out following account compromise. Notably elevated between 1–4 AM. |
+| `circular_17_mule_network_rule` | 80 | Accounts receiving funds from ≥4 distinct senders within 1 hour — flagged 8 distinct organized mule rings, all with account age <15 days. |
+| `biometric_structuring_rule` | 56 | Cross-border FATF-flagged transactions combined with biometric evasion, indicating layered laundering attempts. |
 
 *Note: individual rule counts sum to more than total flagged transactions because some transactions trigger multiple rules concurrently.*
 
@@ -52,38 +46,30 @@ From a cleaned dataset of **18,164 transactions**, the RegTech rules engine flag
 
 ---
 
-
-
 ## 💡 Recommendations
 
-
-| Priority         | Finding                                                             | Recommended Action                                                                                                 |
-| ---------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Immediate        | 1,804 transactions evaded biometric checks by staying under 10M VND | Require step-up 2FA/OTP verification for first-time transfers to new beneficiaries, regardless of amount           |
-| Operational      | 80 transactions tied to 8 mule rings                                | Auto-trigger a 24-hour debit block on any account flagged by `circular_17_mule_network_rule`, routed to AML review |
-| Product/Security | Velocity bursts peak 1–4 AM                                         | Cap transfers at 3 per 5-minute window during off-hours; require re-authentication beyond that                     |
-
+| Priority | Finding | Recommended Action |
+|---|---|---|
+| Immediate | 1,804 transactions evaded biometric checks by staying under 10M VND | Require step-up 2FA/OTP verification for first-time transfers to new beneficiaries, regardless of amount |
+| Operational | 80 transactions tied to 8 mule rings | Auto-trigger a 24-hour debit block on any account flagged by `circular_17_mule_network_rule`, routed to AML review |
+| Product/Security | Velocity bursts show notable concentration 1–4 AM | Cap transfers at 3 per 5-minute window during off-hours; require re-authentication beyond that |
 
 Full reasoning and supporting evidence for each recommendation: see [Technical Documentation](docs/TechnicalDocumentation.md#recommendations).
 
 ---
 
-
-
 ## 🧰 Tech Stack
 
-`PostgreSQL` · `Python (Faker, pandas, psycopg2)` · `SQL Window Functions` · `Power BI` · `DAMA Data Quality Framework`
+`PostgreSQL` · `Python (Faker, pandas, numpy, psycopg2)` · `SQL Window Functions` · `Power BI` · `DAMA Data Quality Framework` · `Jupyter`
 
 ---
 
-
-
 ## 🚀 Quick Start
 
-```
+```bash
 # 1. Clone and install dependencies
-git clone https://github.com/your-username/walley-risk-platform.git
-cd walley-risk-platform
+git clone https://github.com/ericgalbarn/walley_risk_fraud_platform.git
+cd walley_risk_fraud_platform
 pip install -r requirements.txt
 
 # 2. Create the database
@@ -105,12 +91,10 @@ psql -U postgres -d walley_risk_db -f sql/05_create_views.sql
 
 ---
 
-
-
 ## 📁 Repository Structure
 
 ```
-walley-risk-platform/
+walley-risk-fraud-platform/
 │
 ├── README.md                        # You are here
 ├── LICENSE                          # MIT License
@@ -120,43 +104,48 @@ walley-risk-platform/
 │   └── TechnicalDocumentation.md    # Full methodology, code walkthroughs, data dictionary
 │
 ├── screenshots/
-│   ├── 01_dashboard_preview.png     # Power BI cockpit preview
-│   ├── 02_cleaning_verification.png # Data cleaning verification output
-│   └── 03_regtech_verification.png  # RegTech rule trigger verification output
+│   ├── 01_dashboard_preview.png                       # Power BI cockpit preview
+│   ├── 02_cleaning_verification.png                    # Data cleaning verification output
+│   ├── 03_regtech_verification.png                     # RegTech rule trigger verification output
+│   ├── 04_verifying_velocity_triggered_off_hours.png   # Velocity rule / off-hours cross-check
+│   ├── 05_verifying_biometric_evasion_transaction.png  # Biometric evasion rule verification
+│   └── 06_verifying_remote_transactions_off_hours.png  # Geolocation / off-hours cross-check
 │
 ├── python/
 │   ├── generate_data.py             # Synthetic data generator
 │   └── pandas_etl_demo.ipynb        # Pandas ETL layer (mirrors SQL cleaning/feature logic)
 │
 └── sql/
-    ├── 01_create_tables.sql         # Schema definition
-    ├── 02_feature_engineering.sql   # Spatial/temporal/window feature engineering
-    ├── 03_data_cleaning.sql         # DAMA data quality pipeline
-    ├── 04_regtech_rules.sql         # SBV 2345 & Circular 17 rules engine
-    └── 05_create_views.sql          # BI-ready data mart views
+    ├── 01_create_tables.sql                          # Schema definition
+    ├── 02_feature_engineering.sql                     # Spatial/temporal/window feature engineering
+    ├── 03_data_cleaning.sql                           # DAMA data quality pipeline
+    ├── 04_regtech_rules.sql                           # SBV 2345 & Circular 17 rules engine
+    ├── 05_create_views.sql                            # BI-ready data mart views
+    ├── 06_verifying_velocity_triggered_off_hours.sql  # Verification query for velocity/off-hours insight
+    ├── 07_verifying_biometric_evasion_transaction.sql # Verification query for biometric evasion insight
+    └── 08_verifying_remote_transaction_off_hours.sql  # Verification query for geolocation/off-hours insight
 ```
 
 ---
-
-
 
 ## 🔭 Scope & Roadmap
 
 This project is intentionally scoped as a **rules-based Data Analytics pipeline** — it demonstrates SQL engineering, feature construction, data quality enforcement, and BI storytelling. It is **not** presented as a production fraud-prevention system.
 
 Planned next phases:
-
 - **ML-based anomaly scoring** to replace static thresholds, which are inherently evadable once known
 - **Graph-based network analysis** for deeper mule-ring detection beyond simple sender-count thresholds
 - **Case management workflow** for analyst triage and SAR filing
 
 See [Limitations & Assumptions](docs/TechnicalDocumentation.md#limitations--assumptions) for full detail.
 
+---
+
 ## License
 
-This project is licensed under the **MIT License**. 
+This project is licensed under the **MIT License**.
 
-- **Code (.py, .sql)**: You are free to modify, distribute, and use the scripts for commercial or private purposes.
-- **Power BI (.pbix)**: You may download, view, and reuse the data model and report layouts.
+- **Code (.py, .sql):** Free to modify, distribute, and use for commercial or private purposes.
+- **Power BI (.pbix):** Free to download, view, and reuse the data model and report layouts.
 
-Please provide attribution by linking back to this repository if you use this work.
+Attribution appreciated — please link back to this repository if you use this work.
