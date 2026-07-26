@@ -136,7 +136,7 @@ WHERE t.user_id = u.user_id;
 
 **Insight:** Transactions with `distance_from_home_km > 100km` showed a **100% overlap with the off-hours flag** (all 96 remote transactions occurring exclusively during off-hours), demonstrating a rigid spatial-temporal clustering that eliminates daytime noise and provides a high-precision indicator for unauthorized remote access patterns.
 
-[Remote transactions during off hours output](../screenshots/06_verifying_remote_transactions_off_hours.png)
+![Remote transactions during off hours output](../screenshots/06_verifying_remote_transactions_off_hours.png)
 
 You can query this SQL line to check [Remote transactions during off hours query](../sql/08_verifying_remote_transaction_off_hours.sql)
 
@@ -174,7 +174,7 @@ WHERE transaction_id IN (
 
 **Insight:** Isolated 1,258 velocity-flagged transactions. 33.07% of these bursts occurred between 1:00–4:00 AM, consistent with attackers exploiting victims' sleeping hours before detection.
 
-[Flagged velocity transaction verification output](../screenshots/04_verifying_velocity_triggered_off_hours.png)
+![Flagged velocity transaction verification output](../screenshots/04_verifying_velocity_triggered_off_hours.png)
 
 You can query this SQL line to check [Flagged velocity transaction verification query](../sql/06_verifying_velocity_triggered_off_hours.sql)
 ---
@@ -234,7 +234,7 @@ WHERE t.beneficiary_id = b.beneficiary_id
 
 **Insight:** 1,422 transactions matched this pattern — ~71.0% of all flagged anomalies, making structuring just under the biometric threshold the single largest fraud vector in the dataset.
 
-[Biometric evasion transaction verification output](../screenshots/05_verifying_biometric_evasion_transaction.png)
+![Biometric evasion transaction verification output](../screenshots/05_verifying_biometric_evasion_transaction.png)
 
 You can query this SQL line to check [Biometric evasion transaction verification query](../sql/07_verifying_biometric_evasion_transaction.sql)
 
@@ -319,7 +319,7 @@ Applied the DAMA 6-dimension data quality standard in `03_data_cleaning.sql`:
 
 **Verification output after cleaning:**
 
-[Data cleaning verification output](../screenshots/02_cleaning_verification.png)
+![Data cleaning verification output](../screenshots/02_cleaning_verification.png)
 
 ---
 
@@ -427,7 +427,7 @@ psql -U postgres -d walley_risk_db -f sql/03_data_cleaning.sql
 
 Expected output:
 
-[Data cleaning verification output](../screenshots/02_cleaning_verification.png)
+![Data cleaning verification output](../screenshots/02_cleaning_verification.png)
 
 ### Step 7 — RegTech rules engine
 
@@ -437,7 +437,7 @@ psql -U postgres -d walley_risk_db -f sql/04_regtech_rules.sql
 
 Expected output:
 
-[RegTech rule trigger verification output](../screenshots/03_regtech_verification.png)
+![RegTech rule trigger verification output](../screenshots/03_regtech_verification.png)
 
 ### Step 8 — Build data mart views
 

@@ -14,7 +14,7 @@ Power BI Executive Cockpit — Fraud Detection Dashboard
 
 *4-zone executive cockpit: KPI summary, RegTech rule breakdown, temporal fraud trends, and incident drill-down table.*
 
-🔗 **[Explore the Interactive Power BI Dashboard →](https://app.powerbi.com/groups/me/reports/4363c137-59b2-4ef5-9011-106b53b4bfa6/b668eb87d8dc89ab4cc1?experience=power-bi&bookmarkGuid=3d38567bb8557ac59445)**
+🔗 **![Explore the Interactive Power BI Dashboard →](https://app.powerbi.com/groups/me/reports/4363c137-59b2-4ef5-9011-106b53b4bfa6/b668eb87d8dc89ab4cc1?experience=power-bi&bookmarkGuid=3d38567bb8557ac59445)**
 
 ---
 
