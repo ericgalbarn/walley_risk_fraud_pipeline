@@ -1,216 +1,129 @@
-# Walley: Stopping Account Takeover Fraud in a Vietnamese Digital Wallet
+# 🛡️ Walley Risk Platform: Enterprise RegTech & Fraud Detection Engine
+
+An end-to-end Financial Risk & AML analytics pipeline built with **PostgreSQL, Python, and SQL**, visualized through an interactive **Power BI Executive Cockpit**. The platform ingests, cleans, engineers risk features, and scans synthetic transaction data against Vietnamese State Bank (SBV) compliance rules — **Decision 2345** (biometric verification thresholds) and **Circular 17/2024/TT-NHNN** (mule account monitoring) — to detect **Account Takeover (ATO)**, **Biometric Evasion**, and **Mule Account Networks**.
+
+> 📌 **Note:** All transaction, user, and beneficiary data in this project is synthetically generated (via Python/Faker) to simulate realistic fraud patterns for portfolio and demonstration purposes. No real financial data is used.
 
 ---
 
-## 📖 The Story
+## 📸 Dashboard Preview
 
-Walley is a Vietnamese digital wallet that allows users to send money, pay bills, and withdraw cash. As the business grew, so did fraud—specifically, **Account Takeover (ATO)**. Fraudsters steal customer credentials, log in, and drain the wallet before the user even knows what happened.
+![Power BI Executive Cockpit — Fraud Detection Dashboard](screenshots/01_dashboard_preview.png)
 
-**The problem was clear:**
-- Our rule-based system was catching obvious fraud (like structuring or velocity violations)
-- But it was **blind to sophisticated ATO attacks** where fraudsters used legitimate credentials
-- Customers were complaining about declined transactions
-- Investigators were overwhelmed with false alarms
-- Fraud losses were climbing
+*4-zone executive cockpit: KPI summary, RegTech rule breakdown, temporal fraud trends, and incident drill-down table.*
 
-**The regulatory pressure was real:**
-- **SBV Decision 2345** (State Bank of Vietnam) mandates biometric authentication for any transaction over 10,000,000 VND
-- Fraudsters were intentionally structuring transactions just below this threshold to avoid detection
-- **FATF guidelines** require monitoring of high-risk countries
-- We needed a system that could **think like a fraudster**, not just follow rules
+🔗 **[Explore the Interactive Power BI Dashboard →](https://app.powerbi.com/groups/me/reports/4363c137-59b2-4ef5-9011-106b53b4bfa6/b668eb87d8dc89ab4cc1?experience=power-bi&bookmarkGuid=3d38567bb8557ac59445)**
 
 ---
 
-## 🎯 The Objective
+## 🎯 Business Problem
 
-We needed to build a system that could:
+With the rapid growth of digital banking and e-wallets in Vietnam, financial institutions face increasingly sophisticated, high-velocity fraud vectors. This platform was built to answer four core risk and compliance questions:
 
-1. **Detect ATO fraud** that rules alone could not catch
-2. **Stay compliant** with SBV Decision 2345 and FATF guidelines
-3. **Balance fraud prevention** with customer experience (98% of legitimate transactions should flow without friction)
-4. **Reduce investigator workload** so they can focus on real fraud
-
-**Our risk appetite:** Fraud loss rate must stay **below 0.5% of Gross Transaction Volume (GTV)**.
+1. **Biometric Evasion** — How many transactions are structured between 9,000,000–9,999,999 VND to intentionally bypass mandatory biometric authentication (Decision 2345) on transfers to new or high-risk accounts?
+2. **Account Takeover (ATO)** — How can we detect high-velocity transaction bursts (>3 transactions within a 5-minute window) indicating a compromised account?
+3. **Mule Account Networks** — How do we identify accounts that rapidly aggregate funds from multiple victims (≥4 unique senders within 1 hour), as mandated under Circular 17?
+4. **Data Quality** — How do we enforce data quality (DAMA standards) across messy transactional records before they feed Risk Dashboards?
 
 ---
 
-## 🛠️ What We Built
+## 🔑 Key Findings
 
-We built an **end-to-end risk decision platform** that combines three layers:
+From a cleaned dataset of **18,164 transactions**, the RegTech rules engine flagged **~2,100 suspicious transactions** (**~11.5%** flag rate).
 
-### Layer 1: RegTech Rules (SQL)
+| Risk Rule | Triggered Count | What It Means |
+|---|---|---|
+| `biometric_evasion_rule` | 1,422 | **Primary risk vector.** Transfers of 9M–9.99M VND to newly created beneficiaries, structured just under the 10M VND biometric verification threshold. |
+| `velocity_rule` | 629 | Rapid-fire transactions (>3 within 5 minutes), consistent with automated cash-out following account compromise. Concentrated between 1–4 AM. |
+| `circular_17_mule_network_rule` | 40 | Accounts receiving funds from ≥4 distinct senders within 1 hour — flagged 8 distinct organized mule rings, all with account age <15 days. |
+| `biometric_structuring_rule` | 28 | Cross-border FATF-flagged transactions combined with biometric evasion, indicating layered laundering attempts. |
 
-Hard regulatory rules that cannot be violated:
-- **Structuring:** Detects transactions just below the 10M VND biometric threshold
-- **Velocity:** Flags more than 3 transactions in 5 minutes (a sign of cash-out)
-- **Sanctions:** Blocks transactions to/from FATF high-risk countries
-- **Biometric Evasion:** Flags first-time transfers between 9M and 9.99M VND
-
-### Layer 2: Fraud Analytics (ML)
-
-An **XGBoost** classifier trained on features engineered from transaction data. To generate reliable labels without historical fraud data, **Isolation Forest** was first used to identify anomalous patterns and compute anomaly scores, which were then fed as a feature into the **XGBoost** model. This approach allowed us to detect subtle ATO patterns that rules alone miss:
-
-- Learns subtle fraud patterns that rules miss
-- Scores every transaction with a probability of fraud
-- Achieved **78% Recall** and **72% Precision** on ATO detection
-
-### Layer 3: Risk Decision Engine
-
-Combines rules and ML scores to make a final business decision:
-- **Block:** If any RegTech rule is triggered
-- **Review:** If ML score > threshold (0.25)
-- **Approve:** If ML score ≤ threshold
+*Note: individual rule counts sum to more than total flagged transactions because some transactions trigger multiple rules concurrently.*
 
 ---
 
-## 📊 The Results
+## 💡 Recommendations
 
-### Key Findings
+| Priority | Finding | Recommended Action |
+|---|---|---|
+| Immediate | 1,422 transactions evaded biometric checks by staying under 10M VND | Require step-up 2FA/OTP verification for first-time transfers to new beneficiaries, regardless of amount |
+| Operational | 40 transactions tied to 8 mule rings | Auto-trigger a 24-hour debit block on any account flagged by `circular_17_mule_network_rule`, routed to AML review |
+| Product/Security | Velocity bursts peak 1–4 AM | Cap transfers at 3 per 5-minute window during off-hours; require re-authentication beyond that |
 
-| **Finding** | **The Numbers** | **What It Means** |
-| --- | --- | --- |
-| **ATO is our biggest fraud problem.** | ATO Share of Fraud Loss = 88.1% (i.e., 88.1% of all fraud losses come from ATO). | We need to focus 100% of our fraud team's time on stopping account takeovers. |
-| **Our system currently flags 12-15% of transactions as suspicious.** | A realistic rate that balances fraud detection with customer experience. | During MVP testing, we intentionally used conservative thresholds to ensure maximum detection, which is why this rate is higher than typical production systems. |
-| **New devices are the main entry point for fraudsters.** | 14.45% of transactions come from new devices. | This is where we need to add extra verification. |
-| **Our review queue is near capacity.** | 9.78% of transactions are pending review. | We are close to the danger zone. Investigators will soon be backlogged. |
-
-### Model Performance
-
-| **Metric** | **Result** | **Target** | **Status** |
-| --- | --- | --- | --- |
-| **ML Model Recall** | 78% | ≥ 85% | ⚠️ Needs improvement |
-| **ML Model Precision** | 72% | 10-15% | ✅ Exceeded |
-| **PR-AUC** | 0.8444 | ≥ 0.70 | ✅ Excellent |
-
-![Fraud Detection Results](docs/02_fraud_detection_results.png)
-
-### Dashboard Insights
-
-![Walley Risk Dashboard](docs/04_Walley_Dashboard.png)
-
-The executive dashboard provides real-time visibility into:
-- **4 KPI Cards:** ATO Fraud Loss Rate (88.1%), ATO Flag Rate (78.7%), New Device Rate (14.45%), Review Rate (9.78%)
-- **Defense Breakdown:** Waterfall chart showing Approve (7.9K), Review (1.0K), Block (0.6K), Pending (0.5K)
-- **Top Risk Drivers:** New Beneficiary (3.0K), Off Hours (2.9K), New Device (1.4K)
-- **Risk Tier Breakdown:** Low (71%), Medium (19.6%), High (9.4%)
-
-### ATO Trend
-
-- **Jan 2026 – 10 Apr 2026:** 30 ATO transactions
-- **11 Apr 2026 – 7 Jul 2026:** 1 ATO transaction
-
-The sharp drop reflects the impact of deploying the RegTech + ML risk decision engine.
-
-### Risk Tier Breakdown & Decision Comparison
-
-**By risk tier:**
-- Low risk: 71% of transactions
-- Medium risk: 19.6% of transactions
-- High risk: 9.4% of transactions
-
-**By decision:**
-- Approved: 79.1% of transactions
-- Review: 9.9% of transactions
-- Blocked: 5.8% of transactions
-- Pending: 5.2% of transactions
-
-**Friction by risk tier** (share of each tier that was blocked or sent to review):
-- Low risk: 15.2%
-- Medium risk: 15.0%
-- High risk: 14.1%
-
-This near-flat friction rate across tiers is one of the clearest signs the current threshold isn't discriminating well enough between risk levels - it's a key driver behind Action 2 below.
-
-**Live Dashboard:** [Walley Risk Command Center](https://app.powerbi.com/groups/me/reports/4363c137-59b2-4ef5-9011-106b53b4bfa6/08e9b6eefa331b0240a7?ctid=246d1169-d80e-4f80-b3ff-c334c35a8798&experience=power-bi)
+Full reasoning and supporting evidence for each recommendation: see [Technical Documentation](docs/TechnicalDocumentation.md#recommendations).
 
 ---
 
-## 🚨 What We Recommend (Actions for Leadership)
+## 🧰 Tech Stack
 
-### Action 1: Focus Entirely on ATO Prevention
-- **Why:** 88.1% of fraud losses come from ATO
-- **What to do:** Redirect 100% of fraud team resources to ATO detection
-- **Expected impact:** Reduce fraud losses by 50% within 60 days
-
-### Action 2: Reduce False Alarms
-- **Why:** 78.7% flag rate is overwhelming investigators
-- **What to do:** Raise ML threshold from 0.25 to 0.35
-- **Expected impact:** Reduce investigator workload by 40% within 30 days
-
-### Action 3: Add SMS Verification for New Devices
-- **Why:** 14.45% of transactions come from new devices
-- **What to do:** Require SMS OTP for new device transactions over 5M VND
-- **Expected impact:** Block 15% of ATO attempts without annoying regular customers
-
-### Action 4: Monitor Review Queue Daily
-- **Why:** 9.78% is close to the 10% danger zone
-- **What to do:** Reassign investigators if queue exceeds 50 cases
-- **Expected impact:** Prevent investigator backlog and customer delays
+`PostgreSQL` · `Python (Faker, pandas, psycopg2)` · `SQL Window Functions` · `Power BI` · `DAMA Data Quality Framework`
 
 ---
 
-## 🧠 The Architecture
-
-### System Flowchart
-
-![Decision Flowchart](docs/03_Walley_Decision_Flowchart.drawio.png)
-
-### Database Schema
-
-![ERD](docs/01_ERD_Walley.png)
-
----
-
-## 📂 Repository Structure
+## 🚀 Quick Start
 
 ```
-walley_risk_platform/
-├── README.md                                    # This file
+# 1. Clone and install dependencies
+git clone https://github.com/your-username/walley-risk-platform.git
+cd walley-risk-platform
+pip install -r requirements.txt
+
+# 2. Create the database
+createdb walley_risk_db
+
+# 3. Run the pipeline in order
+psql -U postgres -d walley_risk_db -f sql/01_create_tables.sql
+python python/generate_data.py
+psql -U postgres -d walley_risk_db -f sql/02_feature_engineering.sql
+psql -U postgres -d walley_risk_db -f sql/03_data_cleaning.sql
+psql -U postgres -d walley_risk_db -f sql/04_regtech_rules.sql
+psql -U postgres -d walley_risk_db -f sql/05_create_views.sql
+
+# 4. Connect Power BI (or Tableau/Metabase) to localhost:5432/walley_risk_db
+#    Import views: vw_dashboard_fraud_summary, vw_dashboard_rule_breakdown
+```
+
+📖 **Full step-by-step guide with expected outputs:** [docs/TechnicalDocumentation.md](docs/TechnicalDocumentation.md#execution-guide)
+
+---
+
+## 📁 Repository Structure
+
+```
+walley-risk-platform/
+│
+├── README.md                        # You are here
+├── LICENSE                          # MIT License
+├── requirements.txt                 # Python dependencies
+│
 ├── docs/
-│   ├── 01_ERD_Walley.png                        # Entity Relationship Diagram
-│   ├── 02_fraud_detection_results.png           # ML model performance
-│   ├── 03_Walley_Decision_Flowchart.drawio.png  # Decision flowchart
-│   └── 04_Walley_Dashboard.png                  # Power BI dashboard preview
-├── sql/
-│   ├── 01_create_tables.sql                     # PostgreSQL DDL
-│   ├── 02-07_clean_*.sql                        # Data cleaning scripts
-│   └── 08_regtech_rules.sql                     # 5 RegTech rules
+│   └── TechnicalDocumentation.md    # Full methodology, code walkthroughs, data dictionary
+│
+├── screenshots/
+│   ├── 01_dashboard_preview.png     # Power BI cockpit preview
+│   ├── 02_cleaning_verification.png # Data cleaning verification output
+│   └── 03_regtech_verification.png  # RegTech rule trigger verification output
+│
 ├── python/
-│   ├── generate_data.py                         # Synthetic data generation
-│   ├── fraud_analytics.py                       # ML pipeline
-│   ├── risk_decision_engine.py                  # Decision engine with SHAP
-│   ├── fraud_model.json                         # Trained XGBoost model
-│   ├── optimal_threshold.json                   # Optimal threshold
-│   └── audit_log.csv                            # Audit log
-└── powerbi/
-    └── Walley_ATO_Dashboard.pbix               # Power BI dashboard
+│   └── generate_data.py             # Synthetic data generator
+│
+└── sql/
+    ├── 01_create_tables.sql         # Schema definition
+    ├── 02_feature_engineering.sql   # Spatial/temporal/window feature engineering
+    ├── 03_data_cleaning.sql         # DAMA data quality pipeline
+    ├── 04_regtech_rules.sql         # SBV 2345 & Circular 17 rules engine
+    └── 05_create_views.sql          # BI-ready data mart views
 ```
 
 ---
 
-## 📚 Lessons Learned
+## 🔭 Scope & Roadmap
 
-1. **Data quality is everything.** Real-world data is messy. We spent 60% of our time cleaning and validating data.
-2. **Avoid target leakage.** Using rule-based labels directly as ML targets causes the model to just reverse-engineer the rules.
-3. **Explainability matters.** SHAP is not optional—regulators and investigators need to understand why a transaction was flagged.
-4. **Business thinking beats technical complexity.** Our model is not the most complex, but it delivers clear, actionable insights.
+This project is intentionally scoped as a **rules-based Data Analytics pipeline** — it demonstrates SQL engineering, feature construction, data quality enforcement, and BI storytelling. It is **not** presented as a production fraud-prevention system.
 
----
+Planned next phases:
+- **ML-based anomaly scoring** to replace static thresholds, which are inherently evadable once known
+- **Graph-based network analysis** for deeper mule-ring detection beyond simple sender-count thresholds
+- **Case management workflow** for analyst triage and SAR filing
 
-## 🛠️ Technologies Used
-
-- **Database:** PostgreSQL 18+
-- **Backend:** Python 3.14+ (Pandas, NumPy, Scikit-learn, XGBoost, SHAP)
-- **BI:** Power BI Desktop
-- **Version Control:** Git
-- **Regulatory Compliance:** SBV Decision 2345, FATF Guidelines
-
----
-
-## 📬 About the Author
-
-**Nguyen Minh Duc**
-Fintech Risk / Fraud Analyst
-[LinkedIn](https://www.linkedin.com/in/ericgalbarn/) | [GitHub](https://github.com/ericgalbarn)
-
----
+See [Limitations & Assumptions](docs/TechnicalDocumentation.md#limitations--assumptions) for full detail.

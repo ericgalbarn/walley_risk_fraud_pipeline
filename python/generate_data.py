@@ -1,413 +1,272 @@
+# =============================================
+# WALLEY RISK PLATFORM - RAW EVENT DATA GENERATOR (v3.1 - Fixed)
+# Standard: Enterprise Pure Raw Event Generator
+# Output: Direct PostgreSQL Ingestion + CSV Data Lake Archive
+# Compliance: SBV Decision 2345/QD-NHNN & Circular 17/2024/TT-NHNN
+# =============================================
+
 import psycopg2
-import pandas as pd
 import numpy as np
+import pandas as pd
 from datetime import datetime, timedelta
 import random
 import uuid
-
-# =============================================
-# Configuration
-# =============================================
+import os
 
 DB_CONFIG = {
     "host": "localhost",
     "port": 5432,
     "database": "walley_risk_db",
     "user": "postgres",
-    "password": "minhduc2004"  # REPLACE WITH YOUR ACTUAL PASSWORD
+    "password": "minhduc2004"
 }
 
+OUTPUT_DIR = "data"
+
 NUM_USERS = 1000
-NUM_BENEFICIARIES = 500
-NUM_TRANSACTIONS = 10000
-NUM_AUTHS = 5000
+NUM_BENEFICIARIES = 600
+NUM_TRANSACTIONS = 20000
 
-VIETNAMESE_FIRST_NAMES = ["Nguyen", "Tran", "Le", "Pham", "Hoang", "Vu", "Dang", "Bui", "Do", "Ho"]
-VIETNAMESE_LAST_NAMES = ["Van", "Thi", "Huu", "Quang", "Minh", "Thanh", "Anh", "Trong", "Xuan", "Hong"]
-VIETNAMESE_CITIES = ["Ho Chi Minh City", "Hanoi", "Da Nang", "Can Tho", "Hai Phong", "Bien Hoa", "Nha Trang", "Hue", "Vung Tau", "Quy Nhon"]
-HIGH_RISK_COUNTRIES = ["North Korea", "Iran", "Syria", "Myanmar", "Russia", "Belarus", "Venezuela"]
+VIETNAMESE_CITIES = [
+    ("Ho Chi Minh City", 10.8231, 106.6297),
+    ("Hanoi", 21.0285, 105.8542),
+    ("Da Nang", 16.0544, 108.2022),
+    ("Can Tho", 10.0452, 105.7469),
+    ("Hai Phong", 20.8449, 106.6881)
+]
 
-# =============================================
-# Helper functions
-# =============================================
-
-phone_counter = 0
-
-def generate_phone():
-    """Generate a Vietnamese phone number with intentional dirty formats, ensuring uniqueness."""
-    global phone_counter
-    phone_counter += 1
-    base_number = f"0{random.randint(3, 9)}{random.randint(10000000, 99999999)}"
-    # Use counter to ensure uniqueness while maintaining dirty formats
-    if random.random() < 0.15:
-        return f"+84{base_number[1:]}"
-    elif random.random() < 0.15:
-        return f"84{base_number[1:]}"
-    else:
-        return base_number
-
-def generate_name():
-    """Generate a Vietnamese full name."""
-    return f"{random.choice(VIETNAMESE_FIRST_NAMES)} {random.choice(VIETNAMESE_LAST_NAMES)}"
-
-email_counter = 0
-
-def generate_email(name):
-    """Generate a unique email from a name."""
-    global email_counter
-    email_counter += 1
-    domains = ["gmail.com", "yahoo.com", "outlook.com", "email.com"]
-    clean_name = name.lower().replace(" ", ".")
-    return f"{clean_name}{email_counter}@{random.choice(domains)}"
+NAPAS_BANKS = ["VCB", "TCB", "MBB", "ACB", "VPB", "BIDV", "CTG", "TPB"]
+HIGH_RISK_COUNTRIES = ["North Korea", "Iran", "Syria", "Myanmar", "Russia"]
 
 def random_date(start, end):
-    """Generate a random datetime between start and end."""
     delta = end - start
     int_delta = (delta.days * 24 * 60 * 60) + delta.seconds
-    random_second = random.randrange(int_delta)
-    return start + timedelta(seconds=random_second)
+    return start + timedelta(seconds=random.randrange(int_delta))
 
-def random_bool(weight_true=0.5):
-    """Generate a random boolean with given weight."""
-    return random.random() < weight_true
-
-# =============================================
-# Generate data
-# =============================================
+def generate_lognormal_amount():
+    """Generates financial transaction amount using Log-Normal distribution + SBV 2345 Peaks."""
+    rand = random.random()
+    if rand < 0.75:
+        # Giao dịch nhỏ hàng ngày (20k - 500k VND)
+        amt = np.random.lognormal(mean=11.5, sigma=0.8)
+    elif rand < 0.93:
+        # Giao dịch trung bình (1M - 8M VND)
+        amt = np.random.lognormal(mean=14.5, sigma=0.6)
+    else:
+        # Peak né sinh trắc học theo QĐ 2345 (9M - 9.99M VND)
+        amt = random.uniform(9000000, 9999999)
+    return round(float(amt), 2)
 
 def generate_users():
-    """Generate NUM_USERS realistic user records with intentional dirty data."""
     users = []
-    for _ in range(NUM_USERS):
-        name = generate_name()
-        city = random.choice(VIETNAMESE_CITIES)
-        is_active = random_bool(0.92)
-        kyc_status = random.choices(
-            ["pending", "verified", "rejected", "expired"],
-            weights=[0.1, 0.75, 0.05, 0.1]
-        )[0]
-        risk_tier = random.choices(
-            ["low", "medium", "high"],
-            weights=[0.7, 0.2, 0.1]
-        )[0]
-        last_login = random_date(
-            datetime.now() - timedelta(days=90),
-            datetime.now()
-        )
-        created_at = random_date(
-            datetime.now() - timedelta(days=365),
-            datetime.now()
-        )
-        # Some users have negative balance (dirty)
-        balance = round(random.uniform(-50000, 100000000), 2) if random.random() < 0.01 else round(random.uniform(0, 50000000), 2)
-        # Some users have missing city
-        if random.random() < 0.02:
-            city = None
+    now = datetime.now()
+    for i in range(NUM_USERS):
+        city, lat, lng = random.choice(VIETNAMESE_CITIES)
+        created_at = random_date(now - timedelta(days=365), now)
         users.append({
             "user_id": str(uuid.uuid4()),
-            "full_name": name,
-            "email": generate_email(name),
-            "phone": generate_phone(),
-            "wallet_balance": balance,
+            "full_name": f"User_{i+1}",
+            "email": f"user_{i+1}_{uuid.uuid4().hex[:4]}@gmail.com",
+            "phone": f"09{random.randint(10000000, 99999999)}",
+            "wallet_balance": round(float(np.random.lognormal(15.0, 1.0)), 2),
             "home_city": city,
             "home_country": "Vietnam",
+            "home_latitude": lat + random.uniform(-0.05, 0.05),
+            "home_longitude": lng + random.uniform(-0.05, 0.05),
             "created_at": created_at,
-            "kyc_status": kyc_status,
-            "risk_tier": risk_tier,
-            "is_active": is_active,
-            "last_login_timestamp": last_login
+            "last_login_timestamp": created_at + timedelta(hours=2),
+            "kyc_status": random.choices(["verified", "pending", "rejected"], weights=[0.85, 0.10, 0.05])[0],
+            "risk_tier": random.choices(["low", "medium", "high"], weights=[0.80, 0.15, 0.05])[0],
+            "is_active": True
         })
     return users
 
-def generate_beneficiaries(users):
-    """Generate NUM_BENEFICIARIES beneficiary records."""
+def generate_beneficiaries():
     beneficiaries = []
-    for _ in range(NUM_BENEFICIARIES):
-        name = generate_name()
-        country = random.choices(
-            ["Vietnam", "Singapore", "Malaysia", "Thailand", "Japan", "South Korea", "USA", "UK", "Australia"] + HIGH_RISK_COUNTRIES,
-            weights=[0.65] + [0.03]*8 + [0.02]*7
-        )[0]
-        created_at = random_date(
-            datetime.now() - timedelta(days=180),
-            datetime.now()
-        )
+    now = datetime.now()
+    for i in range(NUM_BENEFICIARIES):
+        is_mule = i < 20 # 20 tài khoản rác gom tiền lừa đảo
+        country = random.choice(HIGH_RISK_COUNTRIES) if (is_mule and random.random() < 0.3) else "Vietnam"
         beneficiaries.append({
             "beneficiary_id": str(uuid.uuid4()),
-            "beneficiary_name": name,
-            "beneficiary_phone": generate_phone() if random.random() > 0.05 else None,
-            "beneficiary_bank_account": f"{random.randint(100000, 999999)}{random.randint(100000, 999999)}" if random.random() > 0.1 else None,
+            "beneficiary_name": f"Beneficiary_{i+1}",
+            "beneficiary_phone": f"03{random.randint(10000000, 99999999)}",
+            "beneficiary_bank_account": str(random.randint(1000000000, 9999999999)),
+            "beneficiary_bank_code": random.choice(NAPAS_BANKS) if country == "Vietnam" else "OFFSHORE_WIRE",
             "beneficiary_country": country,
-            "created_at": created_at,
-            "is_verified": random_bool(0.6),
-            "total_transactions_received": 0,
-            "unique_senders_count": 0,
-            "first_transaction_date": None,
-            "last_transaction_date": None
+            "created_at": random_date(now - timedelta(days=15), now) if is_mule else random_date(now - timedelta(days=200), now),
+            "is_verified": not is_mule,
+            "is_mule_flagged": is_mule
         })
     return beneficiaries
 
-def generate_transactions(users, beneficiaries):
-    """Generate NUM_TRANSACTIONS transaction records with dirty data."""
-    transactions = []
-    for i in range(NUM_TRANSACTIONS):
-        user = random.choice(users)
-        beneficiary = random.choice(beneficiaries)
-        # Intentionally make beneficiary_id invalid (dirty)
-        if random.random() < 0.01:
-            beneficiary = {"beneficiary_id": str(uuid.uuid4())}
-        
-        amount = round(random.uniform(1000, 50000000), 2)
-        # Some amounts are negative (dirty)
-        if random.random() < 0.005:
-            amount = round(random.uniform(-500000, -1000), 2)
-        # Some amounts are huge (dirty)
-        if random.random() < 0.005:
-            amount = round(random.uniform(100000000, 1000000000), 2)
-        
-        txn_time = random_date(
-            datetime.now() - timedelta(days=30),
-            datetime.now()
-        )
-        # Some transactions happen before login (dirty)
-        last_login = user["last_login_timestamp"] if random.random() > 0.1 else None
-        if last_login and random.random() < 0.03:
-            txn_time = last_login - timedelta(minutes=random.randint(1, 60))
-        
-        # Dirty: Some transactions have missing timestamp
-        if random.random() < 0.02:
-            txn_time = None
-        
-        status = random.choices(
-            ["pending", "approved", "blocked", "review"],
-            weights=[0.05, 0.8, 0.05, 0.1]
-        )[0]
-        final_decision = random.choices(
-            ["pending", "approve", "review", "block"],
-            weights=[0.05, 0.8, 0.1, 0.05]
-        )[0]
-        rule_flags = []
-        if random.random() < 0.1:
-            rule_flags.append("velocity_rule")
-        if random.random() < 0.08:
-            rule_flags.append("new_beneficiary_rule")
-        if beneficiary.get("beneficiary_country") in HIGH_RISK_COUNTRIES and random.random() < 0.3:
-            rule_flags.append("high_risk_country_rule")
-        
-        # Derived features with dirty injection
-        ratio = round(random.uniform(0, 0.99), 4)
-        if random.random() < 0.02:
-            ratio = None  # Missing ratio
-        
-        is_new_device = random_bool(0.15)
-        
-        # Handle None timestamp for derived features
-        if txn_time is not None:
-            is_off_hours = txn_time.hour < 6 or txn_time.hour > 22
-            is_weekend = txn_time.weekday() in [5, 6]
-        else:
-            is_off_hours = False
-            is_weekend = False
-        
-        # Duplicate injection
-        if random.random() < 0.01 and transactions:
-            duplicate_txn = transactions[-1].copy()
-            if duplicate_txn:
-                duplicate_txn["transaction_id"] = str(uuid.uuid4())
-                duplicate_txn["timestamp"] = txn_time + timedelta(seconds=random.randint(1, 10)) if txn_time else None
-                duplicate_txn["rule_flags"] = rule_flags
-                duplicate_txn["is_beneficiary_new"] = random_bool(0.3)
-                duplicate_txn["is_new_device"] = random_bool(0.15)
-                transactions.append(duplicate_txn)
-        
-        is_beneficiary_new = random_bool(0.3)
-        beneficiary_age_days = random.randint(0, 180) if is_beneficiary_new else random.randint(30, 180)
-        if random.random() < 0.03:
-            beneficiary_age_days = -5  # Dirty
-        
-        # Handle None timestamp for reviewed_at
-        if random.random() < 0.1:
-            if txn_time is not None:
-                reviewed_at = txn_time + timedelta(hours=random.randint(1, 48))
-            else:
-                reviewed_at = None
-        else:
-            reviewed_at = None
-        
-        transactions.append({
-            "transaction_id": str(uuid.uuid4()),
-            "user_id": user["user_id"],
-            "beneficiary_id": beneficiary["beneficiary_id"],
-            "amount": amount,
-            "timestamp": txn_time,
-            "status": status,
-            "fraud_score": round(random.uniform(0, 1), 4) if random.random() > 0.05 else None,
-            "final_decision": final_decision,
-            "reviewed_by": f"investigator_{random.randint(1, 20)}" if random.random() < 0.1 else None,
-            "reviewed_at": reviewed_at,
-            "rule_flags": rule_flags,
-            "transaction_balance_ratio": ratio,
-            "is_beneficiary_new": is_beneficiary_new,
-            "is_off_hours": is_off_hours,
-            "is_weekend": is_weekend,
-            "distance_from_home_km": round(random.uniform(0, 5000), 2) if random.random() > 0.01 else -5.0,
-            "user_7day_transaction_count": random.randint(0, 50),
-            "is_new_device": is_new_device,
-            "beneficiary_account_age_days": beneficiary_age_days,
-            "time_since_last_login_minutes": random.randint(1, 60) if random.random() > 0.1 else None,
-            "is_high_risk_country": beneficiary.get("beneficiary_country") in HIGH_RISK_COUNTRIES
-        })
-    return transactions
-
-def generate_device_auths(users):
-    """Generate NUM_AUTHS device authentication records."""
+def generate_events(users, beneficiaries):
+    txns = []
     auths = []
-    for _ in range(NUM_AUTHS):
-        user = random.choice(users)
-        login_time = random_date(
-            datetime.now() - timedelta(days=30),
-            datetime.now()
-        )
-        is_suspicious = random_bool(0.05)
-        is_proxy_vpn = random_bool(0.05) or is_suspicious
-        is_emulator = random_bool(0.02) or is_suspicious
-        country = random.choices(
-            ["Vietnam", "Singapore", "USA", "UK", "Japan", "China", "Russia", "North Korea"],
-            weights=[0.7, 0.05, 0.05, 0.05, 0.03, 0.03, 0.02, 0.02]
-        )[0]
-        # Some dirty: login after transaction time (impossible)
-        if random.random() < 0.01 and user["last_login_timestamp"]:
-            login_time = user["last_login_timestamp"] + timedelta(seconds=random.randint(1, 60))
+    now = datetime.now()
+    start_time = now - timedelta(days=30)
+
+    mule_bens = [b for b in beneficiaries if b["is_mule_flagged"]]
+    normal_bens = [b for b in beneficiaries if not b["is_mule_flagged"]]
+
+    print("1/3 Generating Normal Organic Transaction Stream...")
+    for _ in range(NUM_TRANSACTIONS - 2000):
+        u = random.choice(users)
+        b = random.choice(normal_bens)
+        t_time = random_date(start_time, now)
+        amt = generate_lognormal_amount() # FIXED: Đã sửa tên hàm thống nhất
+
+        txns.append({
+            "transaction_id": str(uuid.uuid4()),
+            "user_id": u["user_id"],
+            "beneficiary_id": b["beneficiary_id"],
+            "amount": amt,
+            "timestamp": t_time,
+            "channel": "MOBILE_APP",
+            "merchant_country": b["beneficiary_country"],
+            "is_ground_truth_fraud": False,
+            "chargeback_reported_at": None
+        })
+
+        # Device Authentication Event
         auths.append({
             "auth_id": str(uuid.uuid4()),
-            "user_id": user["user_id"],
-            "device_id": f"device_{uuid.uuid4().hex[:16]}",
-            "login_timestamp": login_time,
-            "ip_geolocation_country": country,
-            "ip_geolocation_city": random.choice(VIETNAMESE_CITIES),
-            "is_proxy_vpn": is_proxy_vpn,
-            "is_emulator": is_emulator,
-            "is_suspicious_login": is_suspicious,
-            "os_type": random.choice(["iOS", "Android", "Windows", "Mac", "Linux"]),
-            "browser_fingerprint": f"browser_{uuid.uuid4().hex[:16]}",
-            "session_duration_minutes": random.randint(1, 180) if random.random() > 0.1 else None
+            "user_id": u["user_id"],
+            "device_id": f"device_legit_{u['user_id'][:8]}",
+            "login_timestamp": t_time - timedelta(minutes=random.randint(1, 45)),
+            "ip_address": f"113.161.{random.randint(1,254)}.{random.randint(1,254)}",
+            "ip_geolocation_country": "Vietnam",
+            "ip_geolocation_city": u["home_city"],
+            "ip_latitude": u["home_latitude"] + random.uniform(-0.01, 0.01),
+            "ip_longitude": u["home_longitude"] + random.uniform(-0.01, 0.01),
+            "is_proxy_vpn": False,
+            "is_emulator": False,
+            "os_type": "iOS",
+            "browser_fingerprint": f"fp_{u['user_id'][:6]}",
+            "session_duration_minutes": random.randint(3, 30)
         })
-    return auths
 
-# =============================================
-# Insert data into PostgreSQL
-# =============================================
+    print("2/3 Injecting Fraud Scenario A: ATO Night Burst Attacks...")
+    for _ in range(25): # 25 đợt cướp tài khoản đêm
+        victim = random.choice(users)
+        mule = random.choice(mule_bens)
+        attack_start = random_date(start_time, now).replace(hour=2, minute=random.randint(0, 30))
+        attacker_device = f"dev_hacked_{uuid.uuid4().hex[:8]}"
 
-def insert_data(conn, users, beneficiaries, transactions, auths):
-    """Insert all generated data into the database."""
+        # ATO Impossible Travel Login
+        auths.append({
+            "auth_id": str(uuid.uuid4()),
+            "user_id": victim["user_id"],
+            "device_id": attacker_device,
+            "login_timestamp": attack_start - timedelta(minutes=2),
+            "ip_address": f"185.220.{random.randint(1,254)}.{random.randint(1,254)}",
+            "ip_geolocation_country": "Russia",
+            "ip_geolocation_city": "Moscow",
+            "ip_latitude": 55.7558,
+            "ip_longitude": 37.6173,
+            "is_proxy_vpn": True,
+            "is_emulator": True,
+            "os_type": "Android",
+            "browser_fingerprint": f"fp_emulator_{uuid.uuid4().hex[:6]}",
+            "session_duration_minutes": 15
+        })
+
+        for step in range(4):
+            txn_time = attack_start + timedelta(seconds=step * 40)
+            txns.append({
+                "transaction_id": str(uuid.uuid4()),
+                "user_id": victim["user_id"],
+                "beneficiary_id": mule["beneficiary_id"],
+                "amount": round(random.uniform(9400000, 9980000), 2),
+                "timestamp": txn_time,
+                "channel": "MOBILE_APP",
+                "merchant_country": "Vietnam",
+                "is_ground_truth_fraud": True,
+                "chargeback_reported_at": txn_time + timedelta(days=random.randint(3, 15))
+            })
+
+    print("3/3 Injecting Fraud Scenario B: NAPAS Interbank Mule Rapid Drain (Thông tư 17)...")
+    for mule in mule_bens[:8]:
+        mule_attack_time = random_date(start_time, now)
+        for _ in range(8):
+            vic = random.choice(users)
+            t_time = mule_attack_time + timedelta(seconds=random.randint(10, 1200))
+            txns.append({
+                "transaction_id": str(uuid.uuid4()),
+                "user_id": vic["user_id"],
+                "beneficiary_id": mule["beneficiary_id"],
+                "amount": round(random.uniform(5000000, 9900000), 2),
+                "timestamp": t_time,
+                "channel": "MOBILE_APP",
+                "merchant_country": "Vietnam",
+                "is_ground_truth_fraud": True,
+                "chargeback_reported_at": t_time + timedelta(days=random.randint(1, 20))
+            })
+
+    return txns, auths
+
+def insert_to_db(conn, users, beneficiaries, txns, auths):
     cur = conn.cursor()
-    
-    # Insert users
-    print("Inserting users...")
-    for user in users:
+    print("Writing Users to Database...")
+    for u in users:
         cur.execute("""
-            INSERT INTO users (
-                user_id, full_name, email, phone, wallet_balance,
-                home_city, home_country, created_at, kyc_status,
-                risk_tier, is_active, last_login_timestamp
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            user["user_id"], user["full_name"], user["email"], user["phone"],
-            user["wallet_balance"], user["home_city"], user["home_country"],
-            user["created_at"], user["kyc_status"], user["risk_tier"],
-            user["is_active"], user["last_login_timestamp"]
-        ))
-    
-    # Insert beneficiaries
-    print("Inserting beneficiaries...")
-    for ben in beneficiaries:
+            INSERT INTO users (user_id, full_name, email, phone, wallet_balance, home_city, home_country, home_latitude, home_longitude, created_at, last_login_timestamp, kyc_status, risk_tier, is_active)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (u["user_id"], u["full_name"], u["email"], u["phone"], u["wallet_balance"], u["home_city"], u["home_country"], u["home_latitude"], u["home_longitude"], u["created_at"], u["last_login_timestamp"], u["kyc_status"], u["risk_tier"], u["is_active"]))
+
+    print("Writing Beneficiaries to Database...")
+    for b in beneficiaries:
         cur.execute("""
-            INSERT INTO beneficiaries (
-                beneficiary_id, beneficiary_name, beneficiary_phone,
-                beneficiary_bank_account, beneficiary_country,
-                created_at, is_verified, total_transactions_received,
-                unique_senders_count, first_transaction_date, last_transaction_date
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            ben["beneficiary_id"], ben["beneficiary_name"], ben["beneficiary_phone"],
-            ben["beneficiary_bank_account"], ben["beneficiary_country"],
-            ben["created_at"], ben["is_verified"], ben["total_transactions_received"],
-            ben["unique_senders_count"], ben["first_transaction_date"], ben["last_transaction_date"]
-        ))
-    
-    # Insert transactions
-    print("Inserting transactions...")
-    for txn in transactions:
+            INSERT INTO beneficiaries (beneficiary_id, beneficiary_name, beneficiary_phone, beneficiary_bank_account, beneficiary_bank_code, beneficiary_country, created_at, is_verified, is_mule_flagged)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (b["beneficiary_id"], b["beneficiary_name"], b["beneficiary_phone"], b["beneficiary_bank_account"], b["beneficiary_bank_code"], b["beneficiary_country"], b["created_at"], b["is_verified"], b["is_mule_flagged"]))
+
+    print("Writing Device Authentications to Database...")
+    for a in auths:
         cur.execute("""
-            INSERT INTO transactions (
-                transaction_id, user_id, beneficiary_id, amount, timestamp,
-                status, fraud_score, final_decision, reviewed_by,
-                reviewed_at, rule_flags, transaction_balance_ratio,
-                is_beneficiary_new, is_off_hours, is_weekend,
-                distance_from_home_km, user_7day_transaction_count,
-                is_new_device, beneficiary_account_age_days,
-                time_since_last_login_minutes, is_high_risk_country
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            txn["transaction_id"], txn["user_id"], txn["beneficiary_id"],
-            txn["amount"], txn["timestamp"], txn["status"],
-            txn["fraud_score"], txn["final_decision"], txn["reviewed_by"],
-            txn["reviewed_at"], txn["rule_flags"],
-            txn["transaction_balance_ratio"], txn["is_beneficiary_new"],
-            txn["is_off_hours"], txn["is_weekend"],
-            txn["distance_from_home_km"], txn["user_7day_transaction_count"],
-            txn["is_new_device"], txn["beneficiary_account_age_days"],
-            txn["time_since_last_login_minutes"], txn["is_high_risk_country"]
-        ))
-    
-    # Insert device authentications
-    print("Inserting device authentications...")
-    for auth in auths:
+            INSERT INTO device_authentications (auth_id, user_id, device_id, login_timestamp, ip_address, ip_geolocation_country, ip_geolocation_city, ip_latitude, ip_longitude, is_proxy_vpn, is_emulator, os_type, browser_fingerprint, session_duration_minutes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (a["auth_id"], a["user_id"], a["device_id"], a["login_timestamp"], a["ip_address"], a["ip_geolocation_country"], a["ip_geolocation_city"], a["ip_latitude"], a["ip_longitude"], a["is_proxy_vpn"], a["is_emulator"], a["os_type"], a["browser_fingerprint"], a["session_duration_minutes"]))
+
+    print("Writing Raw Transactions to Database...")
+    for t in txns:
         cur.execute("""
-            INSERT INTO device_authentications (
-                auth_id, user_id, device_id, login_timestamp,
-                ip_geolocation_country, ip_geolocation_city,
-                is_proxy_vpn, is_emulator, is_suspicious_login,
-                os_type, browser_fingerprint, session_duration_minutes
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            auth["auth_id"], auth["user_id"], auth["device_id"],
-            auth["login_timestamp"], auth["ip_geolocation_country"],
-            auth["ip_geolocation_city"], auth["is_proxy_vpn"],
-            auth["is_emulator"], auth["is_suspicious_login"],
-            auth["os_type"], auth["browser_fingerprint"],
-            auth["session_duration_minutes"]
-        ))
-    
+            INSERT INTO transactions (transaction_id, user_id, beneficiary_id, amount, timestamp, channel, merchant_country, is_ground_truth_fraud, chargeback_reported_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (t["transaction_id"], t["user_id"], t["beneficiary_id"], t["amount"], t["timestamp"], t["channel"], t["merchant_country"], t["is_ground_truth_fraud"], t["chargeback_reported_at"]))
+
     conn.commit()
     cur.close()
-    print("All data inserted successfully!")
+    print("✅ DATABASE INGESTION COMPLETE!")
 
-# =============================================
-# Main execution
-# =============================================
+def export_to_csv(users, beneficiaries, txns, auths):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    print("\nExporting Raw Data to CSV files...")
+    
+    pd.DataFrame(users).to_csv(os.path.join(OUTPUT_DIR, "raw_users.csv"), index=False)
+    pd.DataFrame(beneficiaries).to_csv(os.path.join(OUTPUT_DIR, "raw_beneficiaries.csv"), index=False)
+    pd.DataFrame(auths).to_csv(os.path.join(OUTPUT_DIR, "raw_device_authentications.csv"), index=False)
+    pd.DataFrame(txns).to_csv(os.path.join(OUTPUT_DIR, "raw_transactions.csv"), index=False)
+    
+    print("✅ CSV EXPORT COMPLETE!")
 
 def main():
-    print("Generating data...")
+    print("==================================================")
+    print("Starting Enterprise Raw Data Generator Pipeline...")
+    print("==================================================")
+    
     users = generate_users()
-    beneficiaries = generate_beneficiaries(users)
-    transactions = generate_transactions(users, beneficiaries)
-    auths = generate_device_auths(users)
-    
-    print(f"Generated {len(users)} users")
-    print(f"Generated {len(beneficiaries)} beneficiaries")
-    print(f"Generated {len(transactions)} transactions")
-    print(f"Generated {len(auths)} device authentications")
-    
+    beneficiaries = generate_beneficiaries()
+    txns, auths = generate_events(users, beneficiaries)
+
     try:
-        print("Connecting to database...")
         conn = psycopg2.connect(**DB_CONFIG)
-        insert_data(conn, users, beneficiaries, transactions, auths)
+        insert_to_db(conn, users, beneficiaries, txns, auths)
         conn.close()
-        print("Data generation complete!")
     except Exception as e:
-        print(f"Error: {e}")
-        print("Please check your database credentials and ensure PostgreSQL is running.")
+        print(f"❌ DB Error: {e}")
+
+    export_to_csv(users, beneficiaries, txns, auths)
 
 if __name__ == "__main__":
     main()
