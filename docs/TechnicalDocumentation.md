@@ -260,7 +260,7 @@ From **18,164** cleaned transactions, the RegTech layer flagged **~2,100 suspici
 
 ### Dashboard Layout
 
-![Power BI Executive Cockpit — Fraud Detection Dashboard](screenshots/01_dashboard_preview.png)
+![Power BI Executive Cockpit — Fraud Detection Dashboard](../screenshots/01_dashboard_preview.png)
 
 ---
 
