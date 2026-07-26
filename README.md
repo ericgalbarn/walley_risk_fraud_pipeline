@@ -40,6 +40,7 @@ From a cleaned dataset of **18,164 transactions**, the RegTech rules engine flag
 
 *Note: individual rule counts sum to more than total flagged transactions because some transactions trigger multiple rules concurrently.*
 
+> 🐍 The full detection pipeline runs in PostgreSQL for production scale. A parallel **Pandas-based ETL notebook** (`python/pandas_etl_demo.ipynb`) replicates the core cleaning and feature-engineering logic step-for-step, with SQL-to-Pandas equivalents documented inline — see [Technical Documentation](docs/TechnicalDocumentation.md#pandas-etl-layer) for details.
 ---
 
 ## 💡 Recommendations
@@ -105,7 +106,8 @@ walley-risk-platform/
 │   └── 03_regtech_verification.png  # RegTech rule trigger verification output
 │
 ├── python/
-│   └── generate_data.py             # Synthetic data generator
+│   ├── generate_data.py             # Synthetic data generator
+│   └── pandas_etl_demo.ipynb        # Pandas ETL layer (mirrors SQL cleaning/feature logic)
 │
 └── sql/
     ├── 01_create_tables.sql         # Schema definition

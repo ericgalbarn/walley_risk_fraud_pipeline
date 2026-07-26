@@ -9,12 +9,13 @@ This document covers the full methodology, architecture, code-level decisions, d
 1. [Pipeline Architecture](#pipeline-architecture)
 2. [Data Dictionary](#data-dictionary)
 3. [Methodology: Phase-by-Phase Deep Dive](#methodology-phase-by-phase-deep-dive)
-4. [Data Quality Framework (DAMA)](#data-quality-framework-dama)
-5. [Key Findings & Dashboard Layout](#key-findings--dashboard-layout)
-6. [Recommendations](#recommendations)
-7. [Execution Guide](#execution-guide)
-8. [Limitations & Assumptions](#limitations--assumptions)
-9. [Future Work](#future-work)
+4. [Pandas ETL Layer](#pandas-etl-layer)
+5. [Data Quality Framework (DAMA)](#data-quality-framework-dama)
+6. [Key Findings & Dashboard Layout](#key-findings--dashboard-layout)
+7. [Recommendations](#recommendations)
+8. [Execution Guide](#execution-guide)
+9. [Limitations & Assumptions](#limitations--assumptions)
+10. [Future Work](#future-work)
 
 ---
 
@@ -227,9 +228,46 @@ WHERE cardinality(t.rule_flags) > 0;
 
 ---
 
+## Pandas ETL Layer
+
+**File:** `python/pandas_etl_demo.ipynb`
+
+The production cleaning and feature-engineering pipeline runs in PostgreSQL (Phases 1–5 above), chosen for performance and auditability at the dataset's full scale, and because the velocity and mule-network rules rely on window functions and self-joins that PostgreSQL executes far more efficiently than an equivalent row-by-row Pandas implementation would.
+
+Alongside this, a standalone Jupyter notebook replicates the *core cleaning and feature-engineering logic* — not the full rule engine — using Python and Pandas. It exists to demonstrate the same transformation logic in a portable, dependency-light form usable without a live database connection: for ad-hoc analysis, local prototyping before promoting logic to SQL, or environments without direct PostgreSQL access.
+
+The notebook is self-contained: it generates its own small synthetic sample (1,000 rows, same schema shape as the production dataset) with the same categories of data quality issues intentionally injected — negative amounts, malformed phone prefixes, nulls, duplicate rows, orphan records — so it can be cloned and run independently, without setting up PostgreSQL first.
+
+### SQL → Pandas Equivalence
+
+Each transformation in the notebook sits directly beneath a markdown cell showing its SQL counterpart from `03_data_cleaning.sql` and `02_feature_engineering.sql`:
+
+| Step | SQL | Pandas |
+|---|---|---|
+| Phone standardization | `REGEXP_REPLACE(phone, '^(\+84\|84)', '0')` | `.str.replace(r'^(\+84\|84)', '0', regex=True)` |
+| Negative amount correction | `ABS(amount)` | `.abs()` |
+| Null imputation | `COALESCE(is_beneficiary_new, TRUE)` | `.fillna(True)` |
+| Deduplication | `ROW_NUMBER() OVER (PARTITION BY ...)`, keep `rn = 1` | `.drop_duplicates(subset=..., keep='first')` |
+| Referential integrity | `NOT EXISTS` subquery against `beneficiaries` | `.dropna(subset=['beneficiary_id', 'user_id'])` |
+| Haversine distance | `acos()`/`radians()` with `least(1.0, greatest(-1.0, ...))` domain guard | `np.arccos()`/`np.radians()` with `np.clip(..., -1.0, 1.0)` |
+| Off-hours / weekend flags | `EXTRACT(HOUR FROM timestamp)`, `EXTRACT(DOW FROM timestamp)` | `.dt.hour`, `.dt.dayofweek` |
+| Rule flagging (single-rule demo) | `UPDATE ... WHERE amount BETWEEN 9000000 AND 9999999` | Boolean mask via `.between()` |
+
+The `np.clip()` call is worth calling out specifically: it serves the exact same purpose as SQL's `least(1.0, greatest(-1.0, ...))` clamp in Phase 1 — both prevent a domain error in `acos()`/`arccos()` when floating-point rounding pushes an input marginally outside its valid [-1, 1] range. Encountering and solving the same numerical edge case in two different engines reinforced that this isn't a SQL-specific quirk, but a general floating-point boundary condition worth guarding against regardless of implementation.
+
+### Why maintain both
+
+- **SQL** is the system of record — full-scale, auditable, and handles the time-series/graph-style rules (velocity bursts, mule networks) that Pandas would need far more complex rolling/merge logic to replicate at similar performance.
+- **Pandas** is the portable layer — no database setup required, faster to iterate on for prototyping new rule logic before committing it to SQL, and directly demonstrates Python/Pandas ETL proficiency as a standalone, runnable artifact.
+
+Full notebook output (verified to run end-to-end without errors) is available at `python/pandas_etl_demo.ipynb`.
+
+---
+
 ## Data Quality Framework (DAMA)
 
 Applied the DAMA 6-dimension data quality standard in `03_data_cleaning.sql`:
+
 
 | Dimension | Applied Technique |
 |---|---|
@@ -338,6 +376,14 @@ Creates `vw_dashboard_fraud_summary` and `vw_dashboard_rule_breakdown`.
 
 ### Step 9 — Connect BI tool
 Connect Power BI (or Tableau/Metabase) to `localhost:5432/walley_risk_db`, import the two views, and build visuals per the dashboard layout above.
+
+### Step 10 — (Optional) Run the Pandas ETL notebook
+No database connection required — the notebook generates its own synthetic sample. Requires `pandas`, `numpy`, and Jupyter:
+```bash
+pip install -r requirements.txt
+jupyter notebook python/pandas_etl_demo.ipynb
+```
+See [Pandas ETL Layer](#pandas-etl-layer) above for what this demonstrates and why it exists alongside the SQL pipeline.
 
 ---
 
