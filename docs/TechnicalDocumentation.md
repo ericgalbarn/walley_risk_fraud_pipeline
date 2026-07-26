@@ -10,12 +10,13 @@ This document covers the full methodology, architecture, code-level decisions, d
 2. [Data Dictionary](#data-dictionary)
 3. [Methodology: Phase-by-Phase Deep Dive](#methodology-phase-by-phase-deep-dive)
 4. [Pandas ETL Layer](#pandas-etl-layer)
-5. [Data Quality Framework (DAMA)](#data-quality-framework-dama)
-6. [Key Findings & Dashboard Layout](#key-findings--dashboard-layout)
-7. [Recommendations](#recommendations)
-8. [Execution Guide](#execution-guide)
-9. [Limitations & Assumptions](#limitations--assumptions)
-10. [Future Work](#future-work)
+5. [Excel VBA Layer](#excel-vba-layer)
+6. [Data Quality Framework (DAMA)](#data-quality-framework-dama)
+7. [Key Findings & Dashboard Layout](#key-findings--dashboard-layout)
+8. [Recommendations](#recommendations)
+9. [Execution Guide](#execution-guide)
+10. [Limitations & Assumptions](#limitations--assumptions)
+11. [Future Work](#future-work)
 
 ---
 
@@ -275,6 +276,70 @@ The `np.clip()` call is worth calling out specifically: it serves the exact same
 Full notebook output (verified to run end-to-end without errors) is available at `python/pandas_etl_demo.ipynb`.
 
 ---
+
+
+## Excel VBA Layer
+ 
+**File:** `vba/FormatFlaggedTransactions.bas`
+ 
+**Business context:** analysts frequently receive flagged-transaction data as a flat export (CSV/Excel) rather than a live database or BI connection — e.g., a one-off extract for an ad-hoc review, or a report circulated to a board or stakeholder who doesn't have Power BI access. This macro turns that raw export directly into a board-ready risk report, computing summary metrics live from whatever data is on the sheet rather than relying on hardcoded figures.
+ 
+**Input:** the actual output of the Pandas ETL notebook, `cleaned_transactions_pandas_etl.csv`. Rather than assume a fixed column layout, the macro scans row 1 for columns named `amount` and `biometric_evasion_flag` (case-insensitive) and works from whatever position they're actually in — so it isn't tied to one specific export's column order.
+ 
+**What it does:**
+- **Detects required columns by header name** (`amount`, `biometric_evasion_flag`), plus optional columns (`transaction_id`, `timestamp`) used for the top-transactions table below
+- **Styles the header row** (bold, colored, white-on-navy)
+- **Applies VND currency formatting** to the `amount` column
+- **Highlights every flagged row** (`biometric_evasion_flag = True`) across all columns, so risky transactions are scannable without reading every cell
+- **Computes two classes of risk metric, not just one:**
+  - *Count-based:* total transactions, flagged count, flag rate (% of transactions)
+  - *Value-based:* total transaction volume, amount flagged, share of total volume at risk (% of VND, not just % of rows) — this distinction matters because a small number of high-value flagged transactions can represent a disproportionate financial exposure that a pure count-based rate would understate
+- **Builds a separate "Executive Summary" sheet**, inserted as the first tab, containing:
+  - Report generation timestamp and source filename (audit trail)
+  - The six headline metrics above
+  - A **top-10 highest-value flagged transactions** table (transaction ID, timestamp, amount), so a board reviewer sees the specific incidents carrying the most exposure without scrolling through the full dataset
+- **Freezes the header row and autofits columns** on the data sheet
+- Opens on the Executive Summary sheet by default when the macro finishes, since that's the page a board audience should see first
+**Why compute a running top-10 instead of sorting the full dataset:** with the production dataset (18K+ transactions), sorting the entire sheet just to extract 10 rows is wasted work. Instead, the macro maintains a fixed-size sorted array of 10 elements and does a single pass over the data, inserting each newly-flagged transaction into its correct position only if it beats the current 10th-highest amount:
+ 
+```vb
+' Maintains a sorted top-10-by-amount list in a single pass, without
+' sorting the full flagged set — O(n × 10) instead of O(n log n) on
+' the whole table, and avoids re-scanning already-processed rows.
+If amt > topAmt(topN) Then
+    pos = topN
+    Do While pos > 1
+        If amt > topAmt(pos - 1) Then
+            topAmt(pos) = topAmt(pos - 1)
+            topTxnId(pos) = topTxnId(pos - 1)
+            topTime(pos) = topTime(pos - 1)
+            pos = pos - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    topAmt(pos) = amt
+    ' ...
+End If
+```
+ 
+Note the nested `If`/`Exit Do` structure rather than a single combined `Do While pos > 1 And amt > topAmt(pos - 1)` condition — Basic's `And` operator is not short-circuiting, so a combined condition would still evaluate `topAmt(pos - 1)` even once `pos = 1`, causing an out-of-range array access. Restructuring as a guarded nested `If` avoids that entirely.
+ 
+**Why VBA over a Power Query or Pandas equivalent for this specific task:** this is intentionally the "last mile" reporting layer — something that runs directly inside the file a non-technical stakeholder already has open, with no environment setup, producing a document that can be circulated as-is. Power Query and Pandas both handle *transformation* well; VBA fits this specific use case because the output — a formatted, board-ready workbook — is the actual deliverable, not an intermediate dataset.
+ 
+**A note on portability:** this macro is written using LibreOffice's native UNO API (`ThisComponent.CurrentController.ActiveSheet`, `getCellByPosition`, etc.) rather than Excel-style VBA object model syntax (`ActiveSheet`, `Range`, `Cells`). Both are valid VBA/Basic dialects; this version was built and verified in LibreOffice Calc, which doesn't reliably expose Excel's implicit global objects (`ActiveSheet`, `ActiveWindow`) or certain VBA-only string functions (`InStrRev`) without a full VBA compatibility shim. The underlying logic — column detection by header name, risk metric calculation, top-N tracking, conditional formatting — is identical regardless of dialect; porting it to run in real Excel would mainly involve swapping the object-access syntax, not the business logic.
+ 
+**How to run it:**
+1. Generate `cleaned_transactions_pandas_etl.csv` by running `python/pandas_etl_demo.ipynb` end to end.
+2. Open that CSV in LibreOffice Calc.
+3. `Tools → Macros → Edit Macros` → right-click your document name → `Insert → Module` → paste the contents of `FormatFlaggedTransactions.bas`.
+4. With the cursor inside `Sub FormatFlaggedTransactions()`, press `F5`.
+5. Save as `.xlsx` or `.ods` to preserve the formatted result.
+
+![Excel VBA Executive Summary Report](../screenshots/07_vba_executive_summary_report.png)
+
+---
+
 
 ## Data Quality Framework (DAMA)
 

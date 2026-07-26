@@ -115,6 +115,8 @@ walley-risk-fraud-platform/
 │   ├── generate_data.py             # Synthetic data generator
 │   └── pandas_etl_demo.ipynb        # Pandas ETL layer (mirrors SQL cleaning/feature logic)
 │
+├── vba/
+│   └── FormatFlaggedTransactions.bas    # VBA macro: board-ready risk report from ETL output
 └── sql/
     ├── 01_create_tables.sql                          # Schema definition
     ├── 02_feature_engineering.sql                     # Spatial/temporal/window feature engineering
