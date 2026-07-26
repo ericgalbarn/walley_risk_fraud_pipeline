@@ -139,7 +139,6 @@ WHERE t.user_id = u.user_id;
 ![Remote transactions during off hours output](../screenshots/06_verifying_remote_transactions_off_hours.png)
 
 You can query this SQL line to check [Remote transactions during off hours query](../sql/08_verifying_remote_transaction_off_hours.sql)
-
 ---
 
 
