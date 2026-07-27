@@ -8,15 +8,16 @@ This document covers the full methodology, architecture, code-level decisions, d
 
 1. [Pipeline Architecture](#pipeline-architecture)
 2. [Data Dictionary](#data-dictionary)
-3. [Methodology: Phase-by-Phase Deep Dive](#methodology-phase-by-phase-deep-dive)
-4. [Pandas ETL Layer](#pandas-etl-layer)
-5. [Excel VBA Layer](#excel-vba-layer)
-6. [Data Quality Framework (DAMA)](#data-quality-framework-dama)
-7. [Key Findings & Dashboard Layout](#key-findings--dashboard-layout)
-8. [Recommendations](#recommendations)
-9. [Execution Guide](#execution-guide)
-10. [Limitations & Assumptions](#limitations--assumptions)
-11. [Future Work](#future-work)
+3. [Synthetic Data Generation Methodology](#synthetic-data-generation-methodology)
+4. [Methodology: Phase-by-Phase Deep Dive](#methodology-phase-by-phase-deep-dive)
+5. [Pandas ETL Layer](#pandas-etl-layer)
+6. [Excel VBA Layer](#excel-vba-layer)
+7. [Data Quality Framework (DAMA)](#data-quality-framework-dama)
+8. [Key Findings & Dashboard Layout](#key-findings--dashboard-layout)
+9. [Recommendations](#recommendations)
+10. [Execution Guide](#execution-guide)
+11. [Limitations & Assumptions](#limitations--assumptions)
+12. [Future Work](#future-work)
 
 ---
 
@@ -42,11 +43,11 @@ The platform follows a 6-stage end-to-end pipeline:
                        └─────────────────────────┘
 ```
 
-1. **Data Generation** — `generate_data.py` produces 18,164 synthetic transaction records with injected fraud scenarios and data quality issues.
+1. **Data Generation** — `generate_data.py` produces a synthetic organic transaction stream (~18,000 records) plus two deliberately engineered, ground-truth-labeled fraud scenarios (see [Synthetic Data Generation Methodology](#synthetic-data-generation-methodology)).
 2. **Schema Setup** — Relational schema with `users`, `beneficiaries`, `transactions`, `device_authentications`, enforced via primary/foreign keys and indexes.
-3. **Feature Engineering** — SQL window functions and geolocation math compute risk-relevant features.
-4. **Data Cleaning** — DAMA 6-dimension data quality framework applied.
-5. **RegTech Rules Engine** — Four detection rules flag transactions against SBV compliance thresholds.
+3. **Feature Engineering** — SQL window functions, geolocation math, and behavioral/velocity aggregates compute risk-relevant features.
+4. **Data Cleaning** — DAMA 6-dimension data quality framework applied, inside a defensive transaction block (see [Data Quality Framework](#data-quality-framework-dama)).
+5. **RegTech Rules Engine** — Six detection rules flag transactions against SBV, Circular 17, and FATF compliance thresholds.
 6. **Data Mart / BI Layer** — Read-only views expose flattened, BI-ready data to Power BI.
 
 ---
@@ -57,33 +58,114 @@ The platform follows a 6-stage end-to-end pipeline:
 
 | Column | Type | Description | Example |
 |---|---|---|---|
-| `user_id` | INT (PK) | Unique user identifier | `10234` |
-| `home_latitude` / `home_longitude` | FLOAT | User's registered home coordinates, used for geolocation distance checks | `21.0278, 105.8342` |
-| `account_created_at` | TIMESTAMP | Account opening date | `2024-03-11` |
+| `user_id` | UUID (PK) | Unique user identifier | `a1b2c3d4-...` |
+| `wallet_balance` | DECIMAL(15,2) | Current e-wallet balance | `4,250,000.00` |
+| `home_city` / `home_country` | VARCHAR | Registered home location | `Hanoi`, `Vietnam` |
+| `home_latitude` / `home_longitude` | DECIMAL | User's registered home coordinates, used for geolocation distance checks | `21.0278, 105.8342` |
+| `created_at` | TIMESTAMP | Account opening date | `2025-08-11` |
+| `last_login_timestamp` | TIMESTAMP | Most recent login | `2026-07-20 09:14:00` |
+| `kyc_status` | VARCHAR | `pending` / `verified` / `rejected` / `expired` | `verified` |
+| `risk_tier` | VARCHAR | `low` / `medium` / `high` | `low` |
+| `is_active` | BOOLEAN | Account active flag | `TRUE` |
+
+> `wallet_balance`, `kyc_status`, and `risk_tier` are populated by the generator but **not yet consumed by any current rule or cleaning script** — they are reserved for a future ML/profile-scoring phase. See [Future Work](#future-work).
 
 ### `beneficiaries`
 
 | Column | Type | Description | Example |
 |---|---|---|---|
-| `beneficiary_id` | INT (PK) | Unique beneficiary account identifier | `55012` |
-| `beneficiary_bank_code` | TEXT | NAPAS bank routing code | `VCB` |
+| `beneficiary_id` | UUID (PK) | Unique beneficiary account identifier | `f9e8d7c6-...` |
+| `beneficiary_bank_account` / `beneficiary_bank_code` | VARCHAR | NAPAS bank account and routing code | `VCB` |
+| `beneficiary_country` | VARCHAR | Beneficiary's registered country | `Vietnam` |
 | `created_at` | TIMESTAMP | Date beneficiary was first added to sender's account | `2026-06-28` |
-| `is_beneficiary_new` | BOOLEAN | Flag: beneficiary added within last 30 days | `TRUE` |
+| `is_verified` | BOOLEAN | Beneficiary verification status | `TRUE` |
+| `is_mule_flagged` | BOOLEAN | **Ground-truth** label: account was generated as part of an engineered mule scenario | `TRUE` |
+
+> `is_mule_flagged` is a ground-truth label used only during data generation to construct the mule scenario — the current rule engine (`circular_17_mule_network_rule`) detects mule behavior independently from transaction velocity patterns, without reading this label. This separation is intentional: it lets the rule's detection performance be validated against ground truth in a future phase without the rule "cheating" off its own label.
+
+### `device_authentications`
+
+| Column | Type | Description | Example |
+|---|---|---|---|
+| `auth_id` | UUID (PK) | Unique authentication event identifier | `1a2b3c4d-...` |
+| `user_id` | UUID (FK) | References `users` | — |
+| `device_id` | VARCHAR | Device fingerprint identifier | `device_legit_a1b2c3d4` |
+| `login_timestamp` | TIMESTAMP | Login event time | `2026-07-02 02:14:00` |
+| `ip_latitude` / `ip_longitude` | DECIMAL | Geolocation of the login's origin IP | `55.7558, 37.6173` |
+| `is_proxy_vpn` | BOOLEAN | Flag: login originated from a known VPN/proxy range | `TRUE` |
+| `is_emulator` | BOOLEAN | Flag: login originated from an emulated device environment | `TRUE` |
+| `os_type` | VARCHAR | Operating system reported by device | `Android` |
+| `browser_fingerprint` | VARCHAR | Browser/device fingerprint hash | `fp_emulator_9f8e7d` |
+| `session_duration_minutes` | INTEGER | Length of the authenticated session | `15` |
 
 ### `transactions`
 
 | Column | Type | Description | Example |
 |---|---|---|---|
-| `transaction_id` | INT (PK) | Unique transaction identifier | `9004521` |
-| `user_id` | INT (FK) | Sender, references `users` | `10234` |
-| `beneficiary_id` | INT (FK) | Recipient, references `beneficiaries` | `55012` |
-| `amount` | NUMERIC | Transaction amount in VND | `9450000` |
+| `transaction_id` | UUID (PK) | Unique transaction identifier | `9004521a-...` |
+| `user_id` / `beneficiary_id` | UUID (FK) | Sender / recipient references | — |
+| `amount` | DECIMAL(15,2) | Transaction amount in VND | `9,450,000` |
 | `timestamp` | TIMESTAMP | Transaction execution time | `2026-07-02 19:00:00` |
-| `ip_latitude` / `ip_longitude` | FLOAT | Geolocation of transaction origin | `10.7626, 106.6602` |
-| `distance_from_home_km` | FLOAT | Computed Haversine distance between IP location and home address | `142.7` |
-| `is_off_hours` | BOOLEAN | Flag: transaction occurred 11 PM–5 AM | `TRUE` |
+| `channel` | VARCHAR | Transaction channel | `MOBILE_APP` |
+| `merchant_country` | VARCHAR | Country associated with the receiving merchant/beneficiary | `Russia` |
 | `rule_flags` | TEXT[] | Array of triggered RegTech rule names | `{biometric_evasion_rule}` |
-| `is_flagged` | INT (0/1) | Binary flag: 1 if `cardinality(rule_flags) > 0` | `1` |
+| `transaction_balance_ratio` | DECIMAL(5,4) | Transaction amount as a proportion of the sender's wallet balance at time of transaction (capped at 1.0) | `0.8421` |
+| `is_beneficiary_new` | BOOLEAN | Beneficiary added within the last 30 days | `TRUE` |
+| `is_off_hours` | BOOLEAN | Flag: transaction occurred outside 06:00–23:00 | `TRUE` |
+| `is_weekend` | BOOLEAN | Flag: transaction occurred on Saturday or Sunday | `FALSE` |
+| `distance_from_home_km` | DECIMAL(8,2) | Computed Haversine distance between the login IP location nearest the transaction and the user's home address | `142.70` |
+| `user_7day_transaction_count` | INTEGER | Rolling count of the user's transactions in the preceding 7 days | `6` |
+| `is_new_device` | BOOLEAN | Flag: the device authenticating this transaction does not match the user's known legitimate device pattern | `TRUE` |
+| `beneficiary_account_age_days` | INTEGER | Age of the beneficiary account, in days, at time of transaction | `9` |
+| `time_since_last_login_minutes` | INTEGER | Minutes elapsed between the nearest preceding login and the transaction | `2` |
+| `is_high_risk_country` | BOOLEAN | Flag: beneficiary country appears on the FATF high-risk list used in this project | `TRUE` |
+| `is_ground_truth_fraud` | BOOLEAN | **Ground-truth** label set during data generation for engineered fraud scenarios | `TRUE` |
+| `chargeback_reported_at` | TIMESTAMP | Simulated delayed fraud-reporting timestamp (3–20 day lag after the transaction) | `2026-07-10` |
+| `fraud_score`, `final_decision`, `status`, `reviewed_by`, `reviewed_at` | mixed | Reserved fields for a future operational scoring/review workflow — not populated by the current pipeline | — |
+
+---
+
+## Synthetic Data Generation Methodology
+
+**File:** `python/generate_data.py`
+
+Rather than assigning fraud labels to uniformly random transactions, the generator builds a realistic organic transaction stream and then layers in two deliberately engineered, ground-truth-labeled attack scenarios on top of it — so the downstream rules engine is validated against patterns that mirror how these attacks actually unfold in sequence, not arbitrary noise.
+
+### Realistic amount modeling
+
+Transaction amounts are drawn from a **log-normal distribution**, split across three regimes to reflect real-world skew:
+
+```python
+def generate_lognormal_amount():
+    rand = random.random()
+    if rand < 0.75:
+        amt = np.random.lognormal(mean=11.5, sigma=0.8)   # everyday small transactions
+    elif rand < 0.93:
+        amt = np.random.lognormal(mean=14.5, sigma=0.6)   # mid-size transactions
+    else:
+        amt = random.uniform(9000000, 9999999)             # deliberate SBV 2345 structuring peak
+    return round(float(amt), 2)
+```
+
+**Why log-normal rather than uniform:** real transaction amounts are heavily right-skewed — most transactions are small, with a long tail of larger ones — and a uniform distribution would not reproduce that shape. The deliberate third branch (9M–9.99M VND at ~7% frequency) injects a realistic *rate* of biometric-threshold structuring behavior rather than scattering it at an arbitrary frequency.
+
+### Scenario A — ATO Night Burst Attack (25 engineered sequences)
+
+Each of 25 sequences simulates a compromised account end-to-end, not just a flagged transaction in isolation:
+
+1. An **impossible-travel login event** is inserted: origin IP geolocated to Moscow, `is_proxy_vpn = TRUE`, `is_emulator = TRUE`, and a device fingerprint (`dev_hacked_...`) inconsistent with the user's established legitimate device pattern (`device_legit_...`).
+2. Four transactions follow within a ~2-minute window (40-second spacing), each routed to a mule beneficiary, with amounts in the 9.4M–9.98M VND range — deliberately overlapping the biometric-evasion amount band, since real ATO cash-out attempts often try to stay under the same verification threshold the attacker is trying to avoid.
+3. Every transaction in the sequence is tagged `is_ground_truth_fraud = TRUE`, with `chargeback_reported_at` set 3–15 days later — modeling the realistic delay between an attack occurring and a victim noticing and reporting it.
+
+This scenario is the direct source of the signal the `impossible_travel_rule` and `velocity_rule` are designed to catch (see [Rule 5](#rule-5-impossible-travel-ato-behavioral-flag) and [Rule 2](#phase-2-high-velocity-attack-detection-via-window-functions) below) — the rules and the injected scenario were designed with the same underlying attack pattern in mind.
+
+### Scenario B — NAPAS Interbank Mule Rapid Drain (8 mule rings)
+
+Each of 8 designated mule beneficiary accounts (drawn from the pool of accounts flagged `is_mule_flagged = TRUE` at generation time) receives transactions from 8 distinct victim users within a short rolling window, simulating the fund-aggregation pattern Circular 17/2024/TT-NHNN is designed to catch. These are also fully labeled `is_ground_truth_fraud = TRUE`.
+
+### Ground truth vs. rule detection — an intentional separation
+
+The `is_mule_flagged` label on `beneficiaries` and `is_ground_truth_fraud` label on `transactions` are set **only during generation**, to construct the scenarios described above. No current SQL rule reads these labels — `circular_17_mule_network_rule`, for instance, detects mule behavior purely from transaction velocity and sender-distinctness patterns, exactly as a real rule would have to, without access to a ground-truth flag a production system would not have in advance. This means the ground-truth labels remain available, unused, for a future validation phase that would measure each rule's precision and recall against them — see [Future Work](#future-work).
 
 ---
 
@@ -95,25 +177,24 @@ The platform follows a 6-stage end-to-end pipeline:
 
 **Business pain point:** Fraudsters often compromise a session and transact from a remote location while impersonating the legitimate home user.
 
-**Technical decision:** Rather than relying on raw latitude/longitude, we computed the physical distance (km) between the transaction's IP-derived location and the user's registered home address, using the Haversine formula directly in SQL.
+**Technical decision:** Rather than relying on raw latitude/longitude, we computed the physical distance (km) between the nearest preceding login's IP-derived location and the user's registered home address, using the Haversine formula directly in SQL.
 
 ```sql
 -- Calculating Geolocation Distance (Haversine Approximation)
-UPDATE transactions t
-SET distance_from_home_km = (
+distance_from_home_km = ROUND((
     6371 * acos(
-        least(1.0, greatest(-1.0,
-            cos(radians(u.home_latitude)) * cos(radians(t.ip_latitude)) *
-            cos(radians(t.ip_longitude) - radians(u.home_longitude)) +
-            sin(radians(u.home_latitude)) * sin(radians(t.ip_latitude))
+        LEAST(1.0, GREATEST(-1.0,
+            cos(radians(l.home_latitude)) * cos(radians(l.ip_latitude)) *
+            cos(radians(l.ip_longitude) - radians(l.home_longitude)) +
+            sin(radians(l.home_latitude)) * sin(radians(l.ip_latitude))
         ))
     )
-)
-FROM users u
-WHERE t.user_id = u.user_id;
+)::numeric, 2)
 ```
 
-**Why this approach:** `least(1.0, greatest(-1.0, ...))` guards against floating-point domain errors in PostgreSQL's `acos()` when coordinates are identical or sit at rounding boundaries — without this clamp, near-zero-distance transactions can throw a NaN/domain error and silently break the pipeline.
+**Why this approach:** `LEAST(1.0, GREATEST(-1.0, ...))` guards against floating-point domain errors in PostgreSQL's `acos()` when coordinates are identical or sit at rounding boundaries — without this clamp, near-zero-distance transactions can throw a NaN/domain error and silently break the pipeline.
+
+**Related features computed in the same phase:** alongside distance, this phase also derives `time_since_last_login_minutes` (elapsed time between the nearest preceding login and the transaction) and `is_new_device` (whether the authenticating device's fingerprint matches the user's established legitimate device pattern). Both are computed from the same `last_logins` CTE — a `ROW_NUMBER() OVER (PARTITION BY transaction_id ORDER BY login_timestamp DESC)` window pulls the single most recent login at or before each transaction's timestamp, so all three features (distance, recency, device novelty) are derived from one consistent "most recent relevant login" per transaction rather than three separate lookups that could disagree with each other.
 
 **Insight:** Transactions with `distance_from_home_km > 100km` showed a **100% overlap with the off-hours flag** — all 96 remote transactions occurred exclusively during off-hours. This rigid spatial-temporal clustering eliminates daytime noise and provides a high-precision indicator for unauthorized remote access patterns.
 
@@ -129,7 +210,7 @@ Verification query: [`sql/08_verifying_remote_transaction_off_hours.sql`](../sql
 
 **Business pain point:** Once an account is compromised, fraudsters typically attempt to move funds as fast as possible before the victim notices and locks the account.
 
-**Technical decision:** A standard `GROUP BY user_id` collapses time continuity and can't measure burst density. Instead, we used a sliding window (`RANGE BETWEEN INTERVAL PRECEDING AND CURRENT ROW`) to compute rolling transaction density per user within true 5-minute clock windows.
+**Technical decision:** A standard `GROUP BY user_id` collapses time continuity and can't measure burst density. Instead, we used a sliding window (`RANGE BETWEEN INTERVAL PRECEDING AND CURRENT ROW`) to compute rolling transaction density per user within true 5-minute clock windows. The same window-function pattern (with a 7-day interval instead of 5 minutes) also produces `user_7day_transaction_count`, a broader velocity feature available for future scoring even though the current rule set only acts on the 5-minute window.
 
 ```sql
 WITH burst_transactions AS (
@@ -182,7 +263,7 @@ SET rule_flags = array_append(rule_flags, 'circular_17_mule_network_rule')
 WHERE transaction_id IN (SELECT transaction_id FROM mule_velocity);
 ```
 
-**Why this approach:** Requiring `COUNT(DISTINCT t2.user_id) >= 4` ensures only genuine fund-pooling hubs are flagged — a legitimate merchant receiving many payments from the *same* repeat customer would not trigger this rule, since `DISTINCT` collapses repeat senders.
+**Why this approach:** Requiring `COUNT(DISTINCT t2.user_id) >= 4` ensures only genuine fund-pooling hubs are flagged — a legitimate merchant receiving many payments from the *same* repeat customer would not trigger this rule, since `DISTINCT` collapses repeat senders. Notably, this rule detects mule behavior purely from transaction patterns, without reading the `is_mule_flagged` ground-truth label set during data generation (see [Synthetic Data Generation Methodology](#synthetic-data-generation-methodology)) — the same constraint a production rule would face in practice.
 
 **Insight:** Flagged 80 transactions across 8 distinct mule rings. All 8 mule beneficiary accounts were less than 15 days old, supporting the hypothesis that rings rely on newly opened, disposable accounts.
 
@@ -216,11 +297,72 @@ WHERE t.beneficiary_id = b.beneficiary_id
 
 Verification query: [`sql/07_verifying_biometric_evasion_transaction.sql`](../sql/07_verifying_biometric_evasion_transaction.sql)
 
+**Related rule — Biometric Structuring (layered):** a stricter variant of this rule additionally requires the beneficiary's country to appear on the FATF high-risk list (`biometric_structuring_rule`), narrowing the 9M–9.99M VND structuring pattern down to cases layered with cross-border risk — a stronger laundering signal than domestic structuring alone.
+
+---
+
+### Phase 4b: Cross-Border & Behavioral Rules (FATF / ATO)
+
+**5. Cross-Border Fraud Rule**
+
+**Business pain point:** Transactions routed through merchants in FATF-sanctioned or high-risk jurisdictions carry elevated laundering and sanctions-evasion risk regardless of the specific amount-structuring pattern used.
+
+**Technical decision:** A direct filter on `merchant_country` against the same FATF high-risk list used elsewhere in the pipeline, combined with a materiality threshold so low-value, low-risk cross-border activity (e.g., small remittances) isn't over-flagged.
+
+```sql
+UPDATE transactions
+SET rule_flags = array_append(rule_flags, 'cross_border_fraud_rule')
+WHERE merchant_country IN ('North Korea', 'Iran', 'Syria', 'Myanmar', 'Russia')
+  AND amount > 1000000;
+```
+
+**Why this approach:** Keeping the country list and the 1,000,000 VND materiality threshold as simple, explicit constants (rather than a more complex risk-scoring formula) keeps this rule auditable and easy for a compliance reviewer to reason about — a deliberate design choice consistent with the rules-based scope of this phase (see [Limitations & Assumptions](#limitations--assumptions)).
+
+**6. Impossible Travel Rule**
+
+**Business pain point:** A classic, well-understood ATO signal — an account is accessed from a location that is not physically plausible given its immediately preceding session, shortly before a high-value transaction.
+
+**Technical decision:** A `user_login_history` view pre-computes each login alongside its immediately preceding login (via `LAG()`), so the rule can compare consecutive sessions per user without a self-join at query time:
+
+```sql
+CREATE OR REPLACE VIEW user_login_history AS
+SELECT
+    user_id,
+    login_timestamp,
+    ip_latitude,
+    ip_longitude,
+    LAG(login_timestamp) OVER (PARTITION BY user_id ORDER BY login_timestamp) AS prev_login_timestamp,
+    LAG(ip_latitude)     OVER (PARTITION BY user_id ORDER BY login_timestamp) AS prev_ip_latitude,
+    LAG(ip_longitude)    OVER (PARTITION BY user_id ORDER BY login_timestamp) AS prev_ip_longitude
+FROM device_authentications;
+```
+
+```sql
+UPDATE transactions t
+SET rule_flags = array_append(rule_flags, 'impossible_travel_rule')
+WHERE t.amount >= 10000000
+  AND EXISTS (
+      SELECT 1
+      FROM user_login_history l
+      WHERE l.user_id = t.user_id
+        AND l.login_timestamp <= t.timestamp
+        AND l.prev_login_timestamp IS NOT NULL
+        AND (
+            ((l.ip_latitude - l.prev_ip_latitude) ^ 2 + (l.ip_longitude - l.prev_ip_longitude) ^ 2) > 1.0
+            AND EXTRACT(EPOCH FROM (l.login_timestamp - l.prev_login_timestamp)) / 3600 < 2
+        )
+  );
+```
+
+**Why this approach:** `LAG()` is used rather than a self-join because it directly expresses "the previous row for this user, in time order" in a single pass, which is both clearer to read and cheaper to execute than joining the table to itself and filtering. The squared-coordinate-distance check (`> 1.0`) is a fast proxy for "meaningfully far apart" without paying for a full Haversine calculation at this stage — the more precise Haversine distance is reserved for the feature-engineering layer (Phase 1), while this rule only needs a coarse, fast "is this even plausible" signal combined with the 2-hour time constraint.
+
+**Insight:** This rule is the direct detection counterpart to the engineered ATO scenario in the data generator (see [Scenario A](#scenario-a--ato-night-burst-attack-25-engineered-sequences)) — the Moscow-IP, VPN/emulator login followed by rapid high-value transactions is precisely the pattern this rule is built to catch, alongside `velocity_rule`, which catches the same scenario from a different angle (transaction density rather than login geolocation).
+
 ---
 
 ### Phase 5: Semantic Data Mart Layer
 
-**5. Unnesting Arrays for BI Efficiency**
+**7. Unnesting Arrays for BI Efficiency**
 
 **Technical decision:** PostgreSQL array columns (`TEXT[]`) efficiently store multiple triggered rules per transaction (e.g., `{velocity_rule, biometric_evasion_rule}`), but BI tools can't natively aggregate array elements. A dedicated view uses `unnest()` to flatten rule arrays into individual rows.
 
@@ -270,22 +412,21 @@ The `np.clip()` call is worth calling out specifically: it serves the exact same
 
 ### Why maintain both
 
-- **SQL** is the system of record — full-scale, auditable, and handles the time-series/graph-style rules (velocity bursts, mule networks) that Pandas would need far more complex rolling/merge logic to replicate at similar performance.
+- **SQL** is the system of record — full-scale, auditable, and handles the time-series/graph-style rules (velocity bursts, mule networks, impossible travel) that Pandas would need far more complex rolling/merge logic to replicate at similar performance.
 - **Pandas** is the portable layer — no database setup required, faster to iterate on for prototyping new rule logic before committing it to SQL, and directly demonstrates Python/Pandas ETL proficiency as a standalone, runnable artifact.
 
 Full notebook output (verified to run end-to-end without errors) is available at `python/pandas_etl_demo.ipynb`.
 
 ---
 
-
 ## Excel VBA Layer
- 
+
 **File:** `vba/FormatFlaggedTransactions.bas`
- 
+
 **Business context:** analysts frequently receive flagged-transaction data as a flat export (CSV/Excel) rather than a live database or BI connection — e.g., a one-off extract for an ad-hoc review, or a report circulated to a board or stakeholder who doesn't have Power BI access. This macro turns that raw export directly into a board-ready risk report, computing summary metrics live from whatever data is on the sheet rather than relying on hardcoded figures.
- 
+
 **Input:** the actual output of the Pandas ETL notebook, `cleaned_transactions_pandas_etl.csv`. Rather than assume a fixed column layout, the macro scans row 1 for columns named `amount` and `biometric_evasion_flag` (case-insensitive) and works from whatever position they're actually in — so it isn't tied to one specific export's column order.
- 
+
 **What it does:**
 - **Detects required columns by header name** (`amount`, `biometric_evasion_flag`), plus optional columns (`transaction_id`, `timestamp`) used for the top-transactions table below
 - **Styles the header row** (bold, colored, white-on-navy)
@@ -300,8 +441,9 @@ Full notebook output (verified to run end-to-end without errors) is available at
   - A **top-10 highest-value flagged transactions** table (transaction ID, timestamp, amount), so a board reviewer sees the specific incidents carrying the most exposure without scrolling through the full dataset
 - **Freezes the header row and autofits columns** on the data sheet
 - Opens on the Executive Summary sheet by default when the macro finishes, since that's the page a board audience should see first
+
 **Why compute a running top-10 instead of sorting the full dataset:** with the production dataset (18K+ transactions), sorting the entire sheet just to extract 10 rows is wasted work. Instead, the macro maintains a fixed-size sorted array of 10 elements and does a single pass over the data, inserting each newly-flagged transaction into its correct position only if it beats the current 10th-highest amount:
- 
+
 ```vb
 ' Maintains a sorted top-10-by-amount list in a single pass, without
 ' sorting the full flagged set — O(n × 10) instead of O(n log n) on
@@ -322,13 +464,13 @@ If amt > topAmt(topN) Then
     ' ...
 End If
 ```
- 
+
 Note the nested `If`/`Exit Do` structure rather than a single combined `Do While pos > 1 And amt > topAmt(pos - 1)` condition — Basic's `And` operator is not short-circuiting, so a combined condition would still evaluate `topAmt(pos - 1)` even once `pos = 1`, causing an out-of-range array access. Restructuring as a guarded nested `If` avoids that entirely.
- 
+
 **Why VBA over a Power Query or Pandas equivalent for this specific task:** this is intentionally the "last mile" reporting layer — something that runs directly inside the file a non-technical stakeholder already has open, with no environment setup, producing a document that can be circulated as-is. Power Query and Pandas both handle *transformation* well; VBA fits this specific use case because the output — a formatted, board-ready workbook — is the actual deliverable, not an intermediate dataset.
- 
+
 **A note on portability:** this macro is written using LibreOffice's native UNO API (`ThisComponent.CurrentController.ActiveSheet`, `getCellByPosition`, etc.) rather than Excel-style VBA object model syntax (`ActiveSheet`, `Range`, `Cells`). Both are valid VBA/Basic dialects; this version was built and verified in LibreOffice Calc, which doesn't reliably expose Excel's implicit global objects (`ActiveSheet`, `ActiveWindow`) or certain VBA-only string functions (`InStrRev`) without a full VBA compatibility shim. The underlying logic — column detection by header name, risk metric calculation, top-N tracking, conditional formatting — is identical regardless of dialect; porting it to run in real Excel would mainly involve swapping the object-access syntax, not the business logic.
- 
+
 **How to run it:**
 1. Generate `cleaned_transactions_pandas_etl.csv` by running `python/pandas_etl_demo.ipynb` end to end.
 2. Open that CSV in LibreOffice Calc.
@@ -340,17 +482,17 @@ Note the nested `If`/`Exit Do` structure rather than a single combined `Do While
 
 ---
 
-
 ## Data Quality Framework (DAMA)
 
-Applied the DAMA 6-dimension data quality standard in `03_data_cleaning.sql`:
+Applied the DAMA 6-dimension data quality standard in `03_data_cleaning.sql`, wrapped in an explicit `BEGIN`/`COMMIT` transaction block (with a defensive `ROLLBACK` issued first, to safely recover from any previously aborted run before starting a new one):
 
 | Dimension | Applied Technique |
 |---|---|
 | **Accuracy & Conformity** | String trimming, case normalization, phone number standardization (`+84`/`84` prefixes → `0`) |
 | **Referential Integrity** | Purged orphan transactions with no valid `user_id` or `beneficiary_id` |
-| **Validity** | Corrected negative amounts/balances via `ABS()`; capped fraud scores to `[0.0, 1.0]` |
-| **Completeness** | Imputed NULLs via `COALESCE()` with conservative defaults |
+| **Validity** | Corrected negative amounts/balances via `ABS()`; capped `fraud_score` to `[0.0, 1.0]` and `transaction_balance_ratio`/distance/count fields to non-negative ranges |
+| **Completeness** | Imputed NULLs via `COALESCE()` with conservative defaults across engineered feature columns |
+| **Consistency** | Corrected transactions with a timestamp earlier than the sending user's account creation date; re-derived `is_beneficiary_new` from `beneficiary_account_age_days` so the two fields cannot logically contradict each other |
 | **Uniqueness** | Removed network-retry duplicate transactions via `ROW_NUMBER() OVER (...)` |
 
 **Verification output after cleaning:**
@@ -369,8 +511,10 @@ From **18,164** cleaned transactions, the RegTech layer flagged **~2,000 suspici
 | `velocity_rule` | 1,258 | Rapid 5-minute-window bursts, typical of stolen session tokens or ATO cash-out attempts. |
 | `circular_17_mule_network_rule` | 80 | 8 distinct mule rings collecting funds from ≥4 victims within 1 hour. |
 | `biometric_structuring_rule` | 56 | Cross-border FATF-flagged transactions layered with biometric evasion. |
+| `cross_border_fraud_rule` | (see verification query) | Transactions above 1M VND routed through FATF-sanctioned/high-risk merchant countries. |
+| `impossible_travel_rule` | (see verification query) | High-value transactions (≥10M VND) preceded by a geographically implausible login within 2 hours — the direct detection counterpart to the engineered ATO scenario. |
 
-> **Reconciliation note:** Rule counts (1,804 + 1,258 + 80 + 56 = 3,198) exceed the total flagged transaction count (~2,000) because some transactions trigger more than one rule simultaneously. `is_flagged` counts unique transactions; the rule breakdown counts individual rule *triggers*.
+> **Reconciliation note:** Rule counts sum to more than the total flagged transaction count because some transactions trigger more than one rule simultaneously. `is_flagged` (in `vw_dashboard_fraud_summary`) counts unique transactions; the rule breakdown view counts individual rule *triggers*. Exact counts for the two newer rules are produced live by the verification query embedded at the end of `sql/04_regtech_rules.sql` and will vary slightly between data-generation runs since the underlying dataset is regenerated stochastically each time.
 
 ### Dashboard Layout
 
@@ -388,6 +532,7 @@ From **18,164** cleaned transactions, the RegTech layer flagged **~2,000 suspici
 │ • Biometric Evasion: 1,804             │ • Elevated concentration 01:00–04:00  │
 │ • Velocity Bursts: 1,258               │   AM (ATO Night-burst Attack Pattern) │
 │ • Circular 17 Mules: 80                │                                       │
+│ • Cross-Border / Impossible Travel     │                                       │
 ├────────────────────────────────────────┴───────────────────────────────────────┤
 │ [ZONE 4: INCIDENT DRILL-DOWN TABLE]                                            │
 │ [ Txn ID ] [ Timestamp ] [ User ID ] [ Amount ] [ Rule Flags ] [ Beneficiary ] │
@@ -409,6 +554,10 @@ From **18,164** cleaned transactions, the RegTech layer flagged **~2,000 suspici
 ### 3. Night-Time ATO Velocity Throttle (Product & Security)
 **Finding:** Velocity bursts showed notable concentration during 1–4 AM, well above what random distribution would predict.
 **Action:** Enforce a hard cap of 3 transfers per 5-minute window during off-hours; require biometric re-authentication for any device attempting to exceed it.
+
+### 4. Step-Up Re-Authentication on Impossible Travel (Product & Security)
+**Finding:** The engineered ATO scenario shows a consistent pattern of a geographically implausible login directly preceding high-value transactions.
+**Action:** Require step-up re-authentication (e.g., OTP to a registered secondary channel) whenever `impossible_travel_rule` fires, ahead of allowing the associated transaction to complete — rather than only flagging it for post-hoc review.
 
 ---
 
@@ -438,13 +587,13 @@ Sets up `users`, `beneficiaries`, `transactions`, `device_authentications` with 
 ```bash
 python python/generate_data.py
 ```
-Inserts 18,164 transactions with injected fraud vectors and intentional data quality issues.
+Inserts an organic transaction stream plus the two engineered, ground-truth-labeled fraud scenarios described in [Synthetic Data Generation Methodology](#synthetic-data-generation-methodology), and writes matching CSV archives to `data/`.
 
 ### Step 5 — Feature engineering
 ```bash
 psql -U postgres -d walley_risk_db -f sql/02_feature_engineering.sql
 ```
-Computes `distance_from_home_km`, off-hours/weekend flags, balance ratios, window aggregates.
+Computes `distance_from_home_km`, `time_since_last_login_minutes`, `is_new_device`, `transaction_balance_ratio`, `user_7day_transaction_count`, `beneficiary_account_age_days`, `is_high_risk_country`, and off-hours/weekend flags.
 
 ### Step 6 — Data cleaning
 ```bash
@@ -458,7 +607,7 @@ Expected output:
 ```bash
 psql -U postgres -d walley_risk_db -f sql/04_regtech_rules.sql
 ```
-Expected output:
+Runs all six rules (`biometric_structuring_rule`, `velocity_rule`, `cross_border_fraud_rule`, `biometric_evasion_rule`, `impossible_travel_rule`, `circular_17_mule_network_rule`) and prints a trigger-count summary. Expected output:
 
 ![RegTech rule trigger verification output](../screenshots/03_regtech_verification.png)
 
@@ -485,9 +634,10 @@ See [Pandas ETL Layer](#pandas-etl-layer) above for what this demonstrates and w
 
 This project is transparent about its scope and constraints:
 
-- **Synthetic data:** All records are generated via Python/Faker to simulate realistic fraud patterns. No real user, transaction, or financial data is used at any stage.
-- **Illustrative thresholds:** Rule thresholds (9M–9.99M VND structuring window, ≥4 distinct senders for mule detection, 5-minute/3-transaction velocity cap) are reasonable starting points based on the regulations they enforce, but would require calibration against real transaction volume distributions before production use — thresholds tuned on synthetic data will not necessarily hold on live traffic.
+- **Synthetic data:** All records are generated via Python (NumPy-based log-normal modeling and deliberately engineered attack scenarios) to simulate realistic fraud patterns. No real user, transaction, or financial data is used at any stage.
+- **Illustrative thresholds:** Rule thresholds (9M–9.99M VND structuring window, ≥4 distinct senders for mule detection, 5-minute/3-transaction velocity cap, 1M VND cross-border materiality, 100km/2-hour impossible-travel window) are reasonable starting points based on the regulations they enforce, but would require calibration against real transaction volume distributions before production use — thresholds tuned on synthetic data will not necessarily hold on live traffic.
 - **Static rules are inherently evadable.** Rules-based detection catches known patterns; once fraud rings learn the exact thresholds, they adapt around them. This is a known limitation of any purely rules-based system and is precisely the motivation for the ML roadmap below — not a gap unique to this implementation.
+- **Ground-truth labels exist but are not yet formally scored against.** The dataset carries genuine `is_ground_truth_fraud` and `is_mule_flagged` labels from the engineered scenarios, but no current query measures rule precision/recall against them — this is a natural next step (see [Future Work](#future-work)) rather than a gap in the current rules-based scope.
 - **No live/streaming component.** This pipeline runs in scheduled batch mode via SQL scripts, not as a real-time transaction-blocking system. Findings support analyst review and downstream action; the platform itself does not freeze funds.
 - **Scope is Data Analytics, not Machine Learning.** By design, this phase focuses on SQL-based feature engineering, rule logic, and BI reporting. ML scoring is explicitly out of scope for this version (see Future Work).
 
@@ -495,7 +645,9 @@ This project is transparent about its scope and constraints:
 
 ## Future Work
 
-- **ML-based anomaly scoring** to supplement/replace static thresholds — e.g., isolation forests or gradient-boosted classifiers trained on engineered features (`distance_from_home_km`, velocity counts, account age) to catch patterns rules miss.
+- **Rule performance validation against ground truth** — a straightforward next step using data already present in the schema: joining `rule_flags` against `is_ground_truth_fraud` to compute precision, recall, and false-positive rate per rule, before any ML work begins.
+- **ML-based anomaly scoring** to supplement/replace static thresholds — e.g., isolation forests or gradient-boosted classifiers trained on engineered features (`distance_from_home_km`, `transaction_balance_ratio`, velocity counts, account age) against the ground-truth labels, writing results into the currently-unused `fraud_score` field.
+- **Operational review workflow** — activating the currently-provisioned `status`, `final_decision`, `reviewed_by`, and `reviewed_at` fields to support analyst triage of ML- or rule-flagged transactions, plus SAR (Suspicious Activity Report) filing status.
+- **Profile-level risk scoring** — incorporating the currently-unused `kyc_status`, `risk_tier`, and `wallet_balance` fields on `users`, and `is_mule_flagged` on `beneficiaries`, as model features once ML scoring is introduced.
 - **Graph-based network analysis** for mule ring detection beyond simple sender-count thresholds — community detection algorithms (e.g., Louvain) to surface indirect, multi-hop laundering networks.
-- **Case management workflow** — analyst assignment, investigation notes, SAR (Suspicious Activity Report) filing status, and a feedback loop to track false-positive rates and retrain/re-tune rules over time.
 - **Real-time streaming pipeline** (e.g., Kafka + streaming SQL) to move from scheduled batch scoring toward near-real-time transaction scoring.
