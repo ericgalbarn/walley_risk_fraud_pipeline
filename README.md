@@ -148,23 +148,6 @@ walley-risk-fraud-platform/
     ├── 07_verifying_biometric_evasion_transaction.sql # Verification query for biometric evasion insight
     └── 08_verifying_remote_transaction_off_hours.sql  # Verification query for geolocation/off-hours insight
 ```
-
----
-
-## 🔭 Scope & Roadmap
-
-This project is intentionally scoped as a **rules-based Data Analytics pipeline** — it demonstrates SQL engineering, feature construction, data quality enforcement, and BI storytelling. It is **not** presented as a production fraud-prevention system.
-
-The schema already provisions several fields that this phase deliberately does **not** yet use, reserved for a future ML/operational-review phase:
-- `fraud_score`, `final_decision`, `status`, `reviewed_by`, `reviewed_at` on `transactions` — an operational decision/review workflow (pending → reviewed → decision) to be driven by a future scoring model rather than static rules.
-- `kyc_status`, `risk_tier`, `wallet_balance` on `users`, and `is_mule_flagged` on `beneficiaries` — profile-level risk attributes intended as model features once ML scoring is introduced.
-- `is_ground_truth_fraud` and `chargeback_reported_at` on `transactions` — genuine ground-truth fraud labels are already generated (see [Synthetic Data Generation](#-synthetic-data-generation-methodology)) but are not yet formally scored against the current rule set; a future phase would measure rule precision/recall against these labels before layering on ML.
-
-Planned next phases:
-- **ML-based anomaly scoring** to replace static thresholds, which are inherently evadable once known — trained against the ground-truth labels already present in the dataset
-- **Graph-based network analysis** for deeper mule-ring detection beyond simple sender-count thresholds
-- **Case management workflow** for analyst triage and SAR filing, using the already-provisioned `status`/`final_decision`/`reviewed_by` fields
-
 See [Limitations & Assumptions](docs/TechnicalDocumentation.md#limitations--assumptions) for full detail.
 
 ---
